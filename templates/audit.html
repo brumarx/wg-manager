@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h2>Auditoria</h2>
+    <p class="meta">Últimas 300 ações neste painel</p>
+  </div>
+</div>
+
+{% if entries %}
+<table>
+  <thead>
+    <tr>
+      <th>Quando</th>
+      <th>Quem</th>
+      <th>Ação</th>
+      <th>Detalhes</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for e in entries %}
+    <tr>
+      <td><code class="small">{{ e.ts }}</code></td>
+      <td>{{ e.admin }}</td>
+      <td><span class="badge badge-neutral">{{ e.action }}</span></td>
+      <td>{{ e.details }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="empty">
+  <p>Ainda não há registos de auditoria.</p>
+</div>
+{% endif %}
+
+<style>
+.small { font-size: .82em; }
+</style>
+
+{% endblock %}

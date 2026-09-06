@@ -1,0 +1,24 @@
+[Unit]
+Description=WireGuard Manager Web UI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/wg-manager
+Environment=WG_HOST=CHANGE_ME_public_ip_or_hostname
+Environment=SECRET_KEY=CHANGE_ME_random_string
+Environment=PORT=8081
+# Credenciais do MikroTik: NÃO as ponhas aqui. Usa um drop-in
+# (/etc/systemd/system/wg-manager.service.d/override.conf) com
+# MIKROTIK_HOST, MIKROTIK_USER e EnvironmentFile=/opt/wg-manager/mikrotik.env
+# — vê o README.md e o install.sh.
+ExecStart=/opt/wg-manager/venv/bin/python app.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

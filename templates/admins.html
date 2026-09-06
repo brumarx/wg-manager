@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h2>Administradores</h2>
+    <p class="meta">Contas com acesso a este painel</p>
+  </div>
+  <button class="btn btn-primary" onclick="openModal('modal-add')">+ Novo administrador</button>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Utilizador</th>
+      <th>Ações</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for a in admins %}
+    <tr>
+      <td><strong>{{ a.username }}</strong>{% if a.username == session.user %} <span class="badge badge-ok">tu</span>{% endif %}</td>
+      <td class="actions">
+        <form method="post" action="{{ url_for('admins_delete', admin_id=a.id) }}" style="display:inline"
+              class="form-delete-admin" data-name="{{ a.username }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="btn btn-sm btn-danger">Eliminar</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<!-- Modal: Adicionar administrador -->
+<div id="modal-add" class="modal" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+  <div class="modal-box">
+    <h3>Novo administrador</h3>
+    <form method="post" action="{{ url_for('admins_add') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="field">
+        <label>Utilizador</label>
+        <input type="text" name="username" autofocus required>
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input type="password" name="password" required>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn" onclick="closeModal('modal-add')">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Criar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function openModal(id)  { document.getElementById(id).style.display = 'flex'; }
+function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+document.querySelectorAll('.form-delete-admin').forEach(form => {
+  form.addEventListener('submit', e => {
+    if (!confirm('Eliminar administrador ' + form.dataset.name + '?')) e.preventDefault();
+  });
+});
+</script>
+
+{% endblock %}

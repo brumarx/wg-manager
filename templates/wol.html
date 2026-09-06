@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h2>Wake-on-LAN</h2>
+    <p class="meta">Acordar máquinas na rede local por magic packet</p>
+  </div>
+  <button class="btn btn-primary" onclick="openModal('modal-add')">+ Adicionar máquina</button>
+</div>
+
+{% if machines %}
+<table>
+  <thead>
+    <tr>
+      <th>Nome</th>
+      <th>MAC Address</th>
+      <th>Ações</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for m in machines %}
+    <tr>
+      <td><strong>{{ m.name }}</strong></td>
+      <td><code>{{ m.mac }}</code></td>
+      <td class="actions">
+        <form method="post" action="{{ url_for('wol_send', mid=m.id) }}" style="display:inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="btn btn-sm btn-ok">&#9654; Acordar</button>
+        </form>
+        <form method="post" action="{{ url_for('wol_delete', mid=m.id) }}" style="display:inline"
+              class="form-delete-wol" data-name="{{ m.name }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="btn btn-sm btn-danger">Remover</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="empty">
+  <p>Nenhuma máquina guardada ainda.</p>
+  <p>Clica em <strong>+ Adicionar máquina</strong> para começar.</p>
+</div>
+{% endif %}
+
+<!-- Modal: Adicionar máquina -->
+<div id="modal-add" class="modal" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+  <div class="modal-box">
+    <h3>Adicionar máquina</h3>
+    <form method="post" action="{{ url_for('wol_add') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="field">
+        <label>Nome</label>
+        <input type="text" name="name" placeholder="ex: NAS, PC-Bruno" autofocus required>
+      </div>
+      <div class="field">
+        <label>MAC Address</label>
+        <input type="text" name="mac" placeholder="AA:BB:CC:DD:EE:FF" pattern="([0-9A-Fa-f]{2}[:\-]){5}[0-9A-Fa-f]{2}" required>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn" onclick="closeModal('modal-add')">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="help-card" style="margin-top:24px; max-width: 520px;">
+  <div class="help-icon">?</div>
+  <h3>Como encontrar o MAC address</h3>
+  <p>Em Linux: <code>ip link show</code> ou <code>cat /sys/class/net/eth0/address</code></p>
+  <p>Em Windows: <code>ipconfig /all</code> &rarr; "Endereço Físico"</p>
+  <p>Em macOS: <code>ifconfig en0 | grep ether</code></p>
+  <p style="margin-top:8px; color: var(--muted); font-size:12px;">
+    A máquina precisa de ter Wake-on-LAN activado na BIOS/UEFI e estar ligada à rede por cabo.
+  </p>
+</div>
+
+<script>
+function openModal(id)  { document.getElementById(id).style.display = 'flex'; }
+function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+document.querySelectorAll('.form-delete-wol').forEach(form => {
+  form.addEventListener('submit', e => {
+    if (!confirm('Remover ' + form.dataset.name + '?')) e.preventDefault();
+  });
+});
+</script>
+
+{% endblock %}

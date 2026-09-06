@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+venv/
+wg_manager.db
+mikrotik.env
+*.env

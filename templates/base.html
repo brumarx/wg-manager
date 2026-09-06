@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>WireGuard Manager</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  {% if session.user %}
+  <nav>
+    <span class="nav-brand">&#9632; WireGuard Manager</span>
+    <div class="nav-right">
+      <span class="nav-user">{{ session.user }}</span>
+      <a href="{{ url_for('dashboard') }}" class="btn btn-sm">Utilizadores</a>
+      <a href="{{ url_for('stats_page') }}" class="btn btn-sm">Estatísticas</a>
+      <a href="{{ url_for('network_page') }}" class="btn btn-sm">Ferramentas</a>
+      <a href="{{ url_for('wol_page') }}" class="btn btn-sm">Wake-on-LAN</a>
+      <a href="{{ url_for('admins_page') }}" class="btn btn-sm">Administradores</a>
+      <a href="{{ url_for('audit_page') }}" class="btn btn-sm">Auditoria</a>
+      <a href="{{ url_for('help_page') }}" class="btn btn-sm">Ajuda</a>
+      <a href="{{ url_for('logout') }}" class="btn btn-sm">Sair</a>
+    </div>
+  </nav>
+  {% endif %}
+
+  <main>
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        {% for msg in messages %}
+          <div class="alert">{{ msg }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+    {% block content %}{% endblock %}
+  </main>
+</body>
+</html>

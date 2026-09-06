@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>Ajuda</h2>
+    <p class="meta">Como usar o WireGuard Manager</p>
+  </div>
+  <a href="{{ url_for('dashboard') }}" class="btn">&larr; Voltar</a>
+</div>
+
+<div class="help-grid">
+
+  <div class="help-card">
+    <div class="help-icon">1</div>
+    <h3>Adicionar um utilizador</h3>
+    <p>Clica em <strong>+ Novo utilizador</strong> no painel principal. Dá um nome identificativo (ex: <code>joao-telemovel</code> ou <code>ana-portatil</code>).</p>
+    <p>O sistema gera automaticamente:</p>
+    <ul>
+      <li>Chave privada e pública únicas</li>
+      <li>Chave pré-partilhada (preshared key)</li>
+      <li>Endereço IP VPN disponível</li>
+    </ul>
+  </div>
+
+  <div class="help-card">
+    <div class="help-icon">2</div>
+    <h3>Ligar no telemóvel</h3>
+    <p>Instala a app <strong>WireGuard</strong> (iOS ou Android) e clica em <strong>QR / Config</strong> ao lado do utilizador.</p>
+    <p>Na app, toca em <strong>+</strong> → <strong>Scan QR code</strong> e aponta para o ecrã.</p>
+    <p>A ligação fica configurada automaticamente — sem copiar chaves à mão.</p>
+  </div>
+
+  <div class="help-card">
+    <div class="help-icon">3</div>
+    <h3>Ligar num PC ou Mac</h3>
+    <p>Clica em <strong>Download</strong> ao lado do utilizador para descarregar o ficheiro <code>.conf</code>.</p>
+    <p>Importa-o na app WireGuard para desktop:</p>
+    <ul>
+      <li><strong>Windows/Mac:</strong> Abre WireGuard → "Import tunnel from file"</li>
+      <li><strong>Linux:</strong> <code>sudo wg-quick up ./nome.conf</code></li>
+    </ul>
+  </div>
+
+  <div class="help-card">
+    <div class="help-icon">4</div>
+    <h3>Verificar se está ligado</h3>
+    <p>No painel principal, a coluna <strong>Online</strong> mostra quem está ligado agora à VPN.</p>
+    <ul>
+      <li><span class="badge badge-ok">&#9679; Ligado</span> — o dispositivo está ativo na VPN</li>
+      <li><span class="badge badge-neutral">&#9675; Offline</span> — desligado ou sem tráfego recente</li>
+    </ul>
+  </div>
+
+  <div class="help-card">
+    <div class="help-icon">5</div>
+    <h3>Suspender ou remover acesso</h3>
+    <p>Para bloquear temporariamente um utilizador sem o eliminar, clica em <strong>Desativar</strong>. O peer é removido do WireGuard mas os dados ficam guardados.</p>
+    <p>Para reativar, clica em <strong>Ativar</strong> — o acesso é reposto de imediato.</p>
+    <p>Para eliminar definitivamente, clica em <strong>Eliminar</strong>. O utilizador terá de ser criado de novo se quiser voltar a aceder.</p>
+  </div>
+
+  <div class="help-card">
+    <div class="help-icon">6</div>
+    <h3>O que significa cada campo?</h3>
+    <ul>
+      <li><strong>IP VPN</strong> — endereço privado do dispositivo dentro da VPN (ex: 10.8.0.2)</li>
+      <li><strong>Estado</strong> — se o peer está ativo no servidor</li>
+      <li><strong>Online</strong> — se há tráfego ativo (handshake recente)</li>
+    </ul>
+    <p class="meta" style="margin-top:12px">O tráfego de todos os clientes é encaminhado pelo servidor (<code>{{ public_ip }}</code>).</p>
+  </div>
+
+  <div class="help-card help-card-wide">
+    <div class="help-icon">?</div>
+    <h3>Problemas comuns</h3>
+    <table class="help-table">
+      <tr>
+        <td>Não consigo ligar</td>
+        <td>Verifica se a porta <code>{{ wg_port }}/UDP</code> está aberta na firewall do servidor.</td>
+      </tr>
+      <tr>
+        <td>Online mas sem internet</td>
+        <td>O servidor precisa de ter <code>ip_forward=1</code> e regras de NAT (masquerade) ativas.</td>
+      </tr>
+      <tr>
+        <td>QR code não funciona</td>
+        <td>Usa o <strong>Download</strong> e importa o ficheiro <code>.conf</code> manualmente.</td>
+      </tr>
+      <tr>
+        <td>Peer aparece offline mas está ligado</td>
+        <td>Normal se não há tráfego há mais de 3 minutos. O WireGuard só reporta atividade com tráfego real.</td>
+      </tr>
+    </table>
+  </div>
+
+</div>
+{% endblock %}

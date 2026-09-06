@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="auth-box">
+  <h1>&#9632; WireGuard Manager</h1>
+  <p class="subtitle">Acesso restrito</p>
+  <form method="post">
+    <div class="field">
+      <label>Utilizador</label>
+      <input type="text" name="username" autofocus required>
+    </div>
+    <div class="field">
+      <label>Password</label>
+      <input type="password" name="password" required>
+    </div>
+    <button type="submit" class="btn btn-primary btn-block">Entrar</button>
+  </form>
+</div>
+{% endblock %}

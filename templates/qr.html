@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="qr-page">
+  <div class="qr-header">
+    <a href="{{ url_for('dashboard') }}" class="btn btn-sm">&larr; Voltar</a>
+    <h2>{{ peer.name }}</h2>
+    <a href="{{ url_for('download_qr', peer_id=peer.id) }}" class="btn btn-sm">Download QR</a>
+    <a href="{{ url_for('download_config', peer_id=peer.id) }}" class="btn btn-primary btn-sm">Download .conf</a>
+  </div>
+
+  <div class="qr-content">
+    <div class="qr-box">
+      <p class="qr-label">Digitaliza com a app WireGuard</p>
+      <img src="data:image/png;base64,{{ qr_b64 }}" alt="QR Code" class="qr-img">
+      <p class="meta">IP VPN: <code>{{ peer.ip_address }}</code></p>
+    </div>
+
+    <div class="config-box">
+      <p class="qr-label">Configuração</p>
+      <pre class="config-text">{{ config_text }}</pre>
+    </div>
+  </div>
+</div>
+{% endblock %}

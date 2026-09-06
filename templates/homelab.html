@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Skywalker — Homelab</title>
+  <style>
+    :root {
+      --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3e;
+      --text: #e2e8f0; --muted: #6b7280; --primary: #6366f1;
+      --ok: #22c55e; --warn: #f59e0b; --danger: #ef4444; --radius: 10px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: 'Inter', system-ui, sans-serif; font-size: 14px; min-height: 100vh; }
+
+    header {
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      padding: 0 32px; height: 60px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .brand { font-weight: 700; font-size: 17px; }
+    .brand span { color: var(--primary); }
+    .header-right { color: var(--muted); font-size: 13px; display: flex; align-items: center; gap: 16px; }
+    .btn-nav {
+      padding: 6px 14px; border: 1px solid var(--border); border-radius: 8px;
+      background: var(--surface); color: var(--text); text-decoration: none;
+      font-size: 12px; transition: background .15s;
+    }
+    .btn-nav:hover { background: var(--border); }
+
+    main { max-width: 1200px; margin: 0 auto; padding: 36px 24px; }
+
+    .sysinfo { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 36px; }
+    .si-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
+    .si-label { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin-bottom: 5px; }
+    .si-val { font-size: 15px; font-weight: 600; margin-bottom: 7px; }
+    .si-bar { height: 3px; background: var(--border); border-radius: 2px; overflow: hidden; }
+    .si-bar-inner { height: 100%; border-radius: 2px; background: var(--primary); transition: width .5s ease, background .5s ease; width: 0; }
+
+    .section { margin-bottom: 36px; }
+    .section-title {
+      font-size: 11px; text-transform: uppercase; letter-spacing: .8px;
+      color: var(--muted); margin-bottom: 14px; padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 14px; }
+    .card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 20px; display: flex; flex-direction: column; gap: 8px;
+      transition: border-color .2s, transform .15s;
+      text-decoration: none; color: inherit; cursor: pointer;
+    }
+    .card:hover { border-color: var(--primary); transform: translateY(-2px); }
+    .card-top { display: flex; align-items: center; justify-content: space-between; }
+    .card-icon { font-size: 22px; line-height: 1; }
+    .status-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--border); transition: background .4s; flex-shrink: 0;
+    }
+    .status-dot.up   { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+    .status-dot.down { background: var(--danger); }
+    .card-name { font-weight: 700; font-size: 15px; }
+    .card-desc { color: var(--muted); font-size: 12px; line-height: 1.5; flex: 1; }
+    .card-port {
+      font-size: 11px; color: var(--primary);
+      background: rgba(99,102,241,.1); border: 1px solid rgba(99,102,241,.25);
+      border-radius: 6px; padding: 3px 8px; align-self: flex-start; font-family: monospace;
+    }
+
+    footer { text-align: center; color: var(--muted); font-size: 12px; padding: 24px; border-top: 1px solid var(--border); margin-top: 12px; }
+
+    @media (max-width: 700px) {
+      .sysinfo { grid-template-columns: repeat(2, 1fr); }
+      .cards   { grid-template-columns: repeat(2, 1fr); }
+      header   { padding: 0 16px; }
+      main     { padding: 20px 12px; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="brand">&#9632; <span>Skywalker</span> Homelab</div>
+  <div class="header-right">
+    <span id="clock"></span>
+    <a href="/login" class="btn-nav">WireGuard Manager</a>
+  </div>
+</header>
+
+<main>
+
+  <div class="sysinfo">
+    <div class="si-card">
+      <div class="si-label">CPU</div>
+      <div class="si-val" id="si-cpu">…</div>
+      <div class="si-bar"><div class="si-bar-inner" id="si-cpu-b"></div></div>
+    </div>
+    <div class="si-card">
+      <div class="si-label">RAM</div>
+      <div class="si-val" id="si-ram">…</div>
+      <div class="si-bar"><div class="si-bar-inner" id="si-ram-b"></div></div>
+    </div>
+    <div class="si-card">
+      <div class="si-label">Disco</div>
+      <div class="si-val" id="si-disk">…</div>
+      <div class="si-bar"><div class="si-bar-inner" id="si-disk-b"></div></div>
+    </div>
+    <div class="si-card">
+      <div class="si-label">Temperatura</div>
+      <div class="si-val" id="si-temp">…</div>
+    </div>
+    <div class="si-card">
+      <div class="si-label">Uptime</div>
+      <div class="si-val" id="si-uptime">…</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Media</div>
+    <div class="cards">
+      <a class="card" href="http://192.168.1.70:32400/web" target="_blank" data-port="32400">
+        <div class="card-top"><span class="card-icon">🎬</span><span class="status-dot"></span></div>
+        <div class="card-name">Plex</div>
+        <div class="card-desc">Servidor de media — filmes, séries e músicas</div>
+        <div class="card-port">:32400</div>
+      </a>
+      <a class="card" href="http://192.168.1.70:7878" target="_blank" data-port="7878">
+        <div class="card-top"><span class="card-icon">🎥</span><span class="status-dot"></span></div>
+        <div class="card-name">Radarr</div>
+        <div class="card-desc">Gestão e download automático de filmes</div>
+        <div class="card-port">:7878</div>
+      </a>
+      <a class="card" href="http://192.168.1.70:8989" target="_blank" data-port="8989">
+        <div class="card-top"><span class="card-icon">📺</span><span class="status-dot"></span></div>
+        <div class="card-name">Sonarr</div>
+        <div class="card-desc">Gestão e download automático de séries</div>
+        <div class="card-port">:8989</div>
+      </a>
+      <a class="card" href="http://192.168.1.70:9696" target="_blank" data-port="9696">
+        <div class="card-top"><span class="card-icon">🔍</span><span class="status-dot"></span></div>
+        <div class="card-name">Prowlarr</div>
+        <div class="card-desc">Gestor de indexadores para Radarr/Sonarr</div>
+        <div class="card-port">:9696</div>
+      </a>
+      <a class="card" href="http://192.168.1.70:5055" target="_blank" data-port="5055">
+        <div class="card-top"><span class="card-icon">🎟️</span><span class="status-dot"></span></div>
+        <div class="card-name">Overseerr</div>
+        <div class="card-desc">Pedidos de filmes e séries</div>
+        <div class="card-port">:5055</div>
+      </a>
+      <a class="card" href="http://192.168.1.70:9091" target="_blank" data-port="9091">
+        <div class="card-top"><span class="card-icon">⬇️</span><span class="status-dot"></span></div>
+        <div class="card-name">Transmission</div>
+        <div class="card-desc">Cliente de torrents</div>
+        <div class="card-port">:9091</div>
+      </a>
+      <a class="card" href="http://192.168.1.70:8181" target="_blank" data-port="8181">
+        <div class="card-top"><span class="card-icon">📈</span><span class="status-dot"></span></div>
+        <div class="card-name">Tautulli</div>
+        <div class="card-desc">Estatísticas e histórico de visualizações do Plex</div>
+        <div class="card-port">:8181</div>
+      </a>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Rede &amp; VPN</div>
+    <div class="cards">
+      <a class="card" href="http://192.168.1.70:8081" target="_blank" data-port="8081">
+        <div class="card-top"><span class="card-icon">🔒</span><span class="status-dot"></span></div>
+        <div class="card-name">WireGuard</div>
+        <div class="card-desc">Gestão de VPN, ferramentas de rede e Wake-on-LAN</div>
+        <div class="card-port">:8081</div>
+      </a>
+      <a class="card" href="http://192.168.1.70:9090" target="_blank" data-port="9090">
+        <div class="card-top"><span class="card-icon">📡</span><span class="status-dot"></span></div>
+        <div class="card-name">Prometheus</div>
+        <div class="card-desc">Recolha de métricas do sistema</div>
+        <div class="card-port">:9090</div>
+      </a>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">Sistema &amp; Monitorização</div>
+    <div class="cards">
+      <a class="card" href="http://192.168.1.70:19999" target="_blank" data-port="19999">
+        <div class="card-top"><span class="card-icon">📊</span><span class="status-dot"></span></div>
+        <div class="card-name">Netdata</div>
+        <div class="card-desc">Monitorização em tempo real — CPU, RAM, rede, temperatura</div>
+        <div class="card-port">:19999</div>
+      </a>
+      <a class="card" href="http://192.168.1.70:8080" target="_blank" data-port="8080">
+        <div class="card-top"><span class="card-icon">📁</span><span class="status-dot"></span></div>
+        <div class="card-name">File Browser</div>
+        <div class="card-desc">Gestor de ficheiros via browser</div>
+        <div class="card-port">:8080</div>
+      </a>
+      <a class="card" href="http://192.168.1.70:5432" target="_blank" data-port="5432">
+        <div class="card-top"><span class="card-icon">🗄️</span><span class="status-dot"></span></div>
+        <div class="card-name">PostgreSQL</div>
+        <div class="card-desc">Base de dados relacional</div>
+        <div class="card-port">:5432</div>
+      </a>
+      <a class="card" href="http://192.168.1.70:6379" target="_blank" data-port="6379">
+        <div class="card-top"><span class="card-icon">⚡</span><span class="status-dot"></span></div>
+        <div class="card-name">Redis</div>
+        <div class="card-desc">Cache e broker de mensagens</div>
+        <div class="card-port">:6379</div>
+      </a>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-title">IA &amp; Ferramentas</div>
+    <div class="cards">
+      <a class="card" href="http://192.168.1.70:11434" target="_blank" data-port="11434">
+        <div class="card-top"><span class="card-icon">🤖</span><span class="status-dot"></span></div>
+        <div class="card-name">Ollama</div>
+        <div class="card-desc">Modelos de linguagem locais (LLM)</div>
+        <div class="card-port">:11434</div>
+      </a>
+      <a class="card" href="http://192.168.1.70:5000" target="_blank" data-port="5000">
+        <div class="card-top"><span class="card-icon">💬</span><span class="status-dot"></span></div>
+        <div class="card-name">WPPConnect</div>
+        <div class="card-desc">Gestão de WhatsApp automatizado</div>
+        <div class="card-port">:5000</div>
+      </a>
+      <a class="card" href="http://192.168.1.70/" target="_blank" data-port="80">
+        <div class="card-top"><span class="card-icon">🌐</span><span class="status-dot"></span></div>
+        <div class="card-name">Apache</div>
+        <div class="card-desc">Servidor web principal</div>
+        <div class="card-port">:80</div>
+      </a>
+    </div>
+  </div>
+
+</main>
+
+<footer>
+  Skywalker &mdash; Raspberry Pi &mdash; <span id="footer-time"></span>
+</footer>
+
+<script>
+function tick() {
+  const now = new Date();
+  document.getElementById('clock').textContent = now.toLocaleTimeString('pt-PT');
+  document.getElementById('footer-time').textContent =
+    now.toLocaleDateString('pt-PT', {weekday:'long', year:'numeric', month:'long', day:'numeric'});
+}
+tick(); setInterval(tick, 1000);
+
+function fmtBytes(b) {
+  if (!b) return '0 B';
+  const u = ['B','KB','MB','GB','TB']; let i = 0;
+  while (b >= 1024 && i < u.length - 1) { b /= 1024; i++; }
+  return b.toFixed(i ? 1 : 0) + ' ' + u[i];
+}
+function fmtUptime(s) {
+  const d = Math.floor(s/86400), h = Math.floor((s%86400)/3600), m = Math.floor((s%3600)/60);
+  if (d) return d+'d '+h+'h'; if (h) return h+'h '+m+'m'; return m+'m';
+}
+function barColor(p) { return p > 85 ? '#ef4444' : p > 65 ? '#f59e0b' : '#6366f1'; }
+
+function refreshSysinfo() {
+  fetch('/api/sysinfo')
+    .then(r => r.json())
+    .then(d => {
+      document.getElementById('si-cpu').textContent  = d.cpu_pct + '%';
+      document.getElementById('si-ram').textContent  = fmtBytes(d.ram_used) + ' / ' + fmtBytes(d.ram_total);
+      document.getElementById('si-disk').textContent = fmtBytes(d.disk_used) + ' / ' + fmtBytes(d.disk_total);
+      document.getElementById('si-temp').textContent = d.temp !== null ? d.temp + ' °C' : '—';
+      document.getElementById('si-uptime').textContent = fmtUptime(d.uptime);
+      ['cpu','ram','disk'].forEach(k => {
+        const el = document.getElementById('si-'+k+'-b');
+        const pct = d[k+'_pct'];
+        if (el) { el.style.width = pct+'%'; el.style.background = barColor(pct); }
+      });
+    }).catch(() => {});
+}
+refreshSysinfo(); setInterval(refreshSysinfo, 6000);
+
+async function checkPort(port) {
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 2500);
+    await fetch('http://192.168.1.70:' + port, { mode: 'no-cors', signal: ctrl.signal });
+    clearTimeout(t); return true;
+  } catch { return false; }
+}
+async function checkAll() {
+  const cards = document.querySelectorAll('.card[data-port]');
+  await Promise.all([...cards].map(async card => {
+    const up = await checkPort(card.dataset.port);
+    card.querySelector('.status-dot').className = 'status-dot ' + (up ? 'up' : 'down');
+  }));
+}
+checkAll(); setInterval(checkAll, 30000);
+</script>
+</body>
+</html>

@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h2>Utilizadores VPN</h2>
+    <p class="meta">Interface: <code>{{ iface }}</code> &nbsp;|&nbsp;
+       Servidor: <code>{{ public_ip }}:{{ server.listen_port }}</code> &nbsp;|&nbsp;
+       Chave pública: <code class="truncate">{{ server.public_key[:24] }}…</code>
+    </p>
+  </div>
+  <div style="display:flex;gap:.5rem">
+    <form method="post" action="{{ url_for('import_peers') }}"
+          onsubmit="return confirm('Sincronizar peers que existam no Mikrotik mas não na lista abaixo?')">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <button class="btn">Sincronizar do Mikrotik</button>
+    </form>
+    <a href="{{ url_for('export_peers') }}" class="btn">Exportar tudo (.zip)</a>
+    <button class="btn btn-primary" onclick="openModal('modal-add')">
+      + Novo utilizador
+    </button>
+  </div>
+</div>
+
+<!-- System Monitor -->
+<div class="sysinfo-bar" id="sysinfo-bar">
+  <div class="sysinfo-card">
+    <div class="sysinfo-label">CPU</div>
+    <div class="sysinfo-value" id="si-cpu">…</div>
+    <div class="sysinfo-bar-fill"><div class="sysinfo-bar-inner" id="si-cpu-bar"></div></div>
+  </div>
+  <div class="sysinfo-card">
+    <div class="sysinfo-label">RAM</div>
+    <div class="sysinfo-value" id="si-ram">…</div>
+    <div class="sysinfo-bar-fill"><div class="sysinfo-bar-inner" id="si-ram-bar"></div></div>
+  </div>
+  <div class="sysinfo-card">
+    <div class="sysinfo-label">Disco</div>
+    <div class="sysinfo-value" id="si-disk">…</div>
+    <div class="sysinfo-bar-fill"><div class="sysinfo-bar-inner" id="si-disk-bar"></div></div>
+  </div>
+  <div class="sysinfo-card">
+    <div class="sysinfo-label">Temperatura</div>
+    <div class="sysinfo-value" id="si-temp">…</div>
+  </div>
+  <div class="sysinfo-card">
+    <div class="sysinfo-label">Uptime</div>
+    <div class="sysinfo-value" id="si-uptime">…</div>
+  </div>
+</div>
+
+<script>
+function fmtSI(bytes) {
+  if (!bytes) return '0 B';
+  const u = ['B','KB','MB','GB','TB'];
+  let i = 0;
+  while (bytes >= 1024 && i < u.length - 1) { bytes /= 1024; i++; }
+  return bytes.toFixed(i ? 1 : 0) + ' ' + u[i];
+}
+function fmtUptime(s) {
+  const d = Math.floor(s / 86400);
+  const h = Math.floor((s % 86400) / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (d) return d + 'd ' + h + 'h';
+  if (h) return h + 'h ' + m + 'm';
+  return m + 'm';
+}
+function barColor(pct) {
+  if (pct > 85) return '#ef4444';
+  if (pct > 65) return '#f59e0b';
+  return '#6366f1';
+}
+function refreshSysinfo() {
+  fetch('/api/sysinfo').then(r => r.json()).then(d => {
+    document.getElementById('si-cpu').textContent  = d.cpu_pct + '%';
+    document.getElementById('si-ram').textContent  = fmtSI(d.ram_used) + ' / ' + fmtSI(d.ram_total);
+    document.getElementById('si-disk').textContent = fmtSI(d.disk_used) + ' / ' + fmtSI(d.disk_total);
+    document.getElementById('si-temp').textContent = d.temp !== null ? d.temp + ' °C' : '—';
+    document.getElementById('si-uptime').textContent = fmtUptime(d.uptime);
+    const bars = [
+      ['si-cpu-bar',  d.cpu_pct],
+      ['si-ram-bar',  d.ram_pct],
+      ['si-disk-bar', d.disk_pct],
+    ];
+    bars.forEach(([id, pct]) => {
+      const el = document.getElementById(id);
+      if (el) { el.style.width = pct + '%'; el.style.background = barColor(pct); }
+    });
+  }).catch(() => {});
+}
+refreshSysinfo();
+setInterval(refreshSysinfo, 5000);
+</script>
+
+{% if peers %}
+<table>
+  <thead>
+    <tr>
+      <th>Nome</th>
+      <th>IP VPN</th>
+      <th>Estado</th>
+      <th>Online</th>
+      <th>Acesso</th>
+      <th>Expira</th>
+      <th>Criado em</th>
+      <th>Ações</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for p in peers %}
+    <tr>
+      <td><strong>{{ p.name }}</strong></td>
+      <td><code>{{ p.ip_address }}</code></td>
+      <td>
+        {% if p.expired %}
+          <span class="badge badge-danger">Expirado</span>
+        {% elif p.enabled %}
+          <span class="badge badge-ok">Ativo</span>
+        {% else %}
+          <span class="badge badge-off">Inativo</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if p.online %}
+          <span class="badge badge-ok">&#9679; Ligado</span>
+        {% else %}
+          <span class="badge badge-neutral">&#9675; Offline</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if p.full_tunnel %}
+          <span class="meta">Total</span>
+        {% else %}
+          <span class="meta">Só rede local</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if p.expires_at %}
+          <code class="small">{{ p.expires_at }}</code>
+        {% else %}
+          <span class="muted">—</span>
+        {% endif %}
+      </td>
+      <td>{{ p.created_at }}</td>
+      <td class="actions">
+        <button class="btn btn-sm btn-edit-peer"
+                data-id="{{ p.id }}" data-name="{{ p.name }}" data-ip="{{ p.ip_address }}"
+                data-expires="{{ p.expires_at or '' }}" data-full-tunnel="{{ p.full_tunnel }}">
+          Editar
+        </button>
+        {% if p.private_key %}
+        <a href="{{ url_for('peer_qr', peer_id=p.id) }}" class="btn btn-sm">QR</a>
+        <a href="{{ url_for('download_config', peer_id=p.id) }}" class="btn btn-sm">Download</a>
+        {% endif %}
+        <form method="post" action="{{ url_for('toggle_peer', peer_id=p.id) }}" style="display:inline">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="btn btn-sm {% if p.enabled %}btn-warn{% else %}btn-ok{% endif %}">
+            {% if p.enabled %}Desativar{% else %}Ativar{% endif %}
+          </button>
+        </form>
+        <form method="post" action="{{ url_for('delete_peer', peer_id=p.id) }}" style="display:inline"
+              class="form-delete-peer" data-name="{{ p.name }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="btn btn-sm btn-danger">Eliminar</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="empty">
+  <p>Nenhum utilizador criado ainda.</p>
+  <p>Clica em <strong>+ Novo utilizador</strong> para começar.</p>
+</div>
+{% endif %}
+
+<!-- Modal: Editar peer -->
+<div id="modal-edit" class="modal" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+  <div class="modal-box">
+    <h3>Editar utilizador</h3>
+    <form id="edit-form" method="post" action="">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="field">
+        <label>Nome</label>
+        <input id="edit-name" type="text" name="name" required autofocus>
+      </div>
+      <div class="field">
+        <label>IP VPN</label>
+        <input id="edit-ip" type="text" disabled>
+      </div>
+      <div class="field">
+        <label>Acesso</label>
+        <select id="edit-full-tunnel" name="full_tunnel">
+          <option value="1">Total (internet + rede local)</option>
+          <option value="0">Só rede local (sem internet pelo servidor)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Expira em (opcional)</label>
+        <input id="edit-expires" type="date" name="expires_at">
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn" onclick="closeModal('modal-edit')">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Modal: Adicionar utilizador -->
+<div id="modal-add" class="modal" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+  <div class="modal-box">
+    <h3>Novo utilizador VPN</h3>
+    <form method="post" action="{{ url_for('add_peer') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="field">
+        <label>Nome</label>
+        <input type="text" name="name" placeholder="ex: joao-telemovel" autofocus required>
+      </div>
+      <div class="field">
+        <label>Acesso</label>
+        <select name="full_tunnel">
+          <option value="1" selected>Total (internet + rede local)</option>
+          <option value="0">Só rede local (sem internet pelo servidor)</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Expira em (opcional)</label>
+        <input type="date" name="expires_at">
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn" onclick="closeModal('modal-add')">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Criar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function openModal(id) {
+  document.getElementById(id).style.display = 'flex';
+}
+function closeModal(id) {
+  document.getElementById(id).style.display = 'none';
+}
+function openEdit(id, name, ip, expires, fullTunnel) {
+  document.getElementById('edit-name').value = name;
+  document.getElementById('edit-ip').value = ip;
+  document.getElementById('edit-expires').value = expires || '';
+  document.getElementById('edit-full-tunnel').value = fullTunnel;
+  document.getElementById('edit-form').action = '/peer/' + id + '/rename';
+  openModal('modal-edit');
+  document.getElementById('edit-name').focus();
+  document.getElementById('edit-name').select();
+}
+
+document.querySelectorAll('.btn-edit-peer').forEach(btn => {
+  btn.addEventListener('click', () => {
+    openEdit(btn.dataset.id, btn.dataset.name, btn.dataset.ip,
+              btn.dataset.expires, btn.dataset.fullTunnel);
+  });
+});
+document.querySelectorAll('.form-delete-peer').forEach(form => {
+  form.addEventListener('submit', e => {
+    if (!confirm('Eliminar ' + form.dataset.name + '?')) e.preventDefault();
+  });
+});
+</script>
+
+{% endblock %}
