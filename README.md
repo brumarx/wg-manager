@@ -81,7 +81,7 @@ garantir que existe uma conta SSH com permissões suficientes.
 ### 2. Instalar o painel
 
 ```bash
-git clone https://github.com/<o-teu-user>/wg-manager.git
+git clone https://github.com/brumarx/wg-manager.git
 cd wg-manager
 sudo bash install.sh
 ```
