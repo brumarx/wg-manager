@@ -4,7 +4,7 @@
 <div class="page-header">
   <div>
     <h2>Ferramentas de Rede</h2>
-    <p class="meta">Ping &nbsp;|&nbsp; Traceroute &nbsp;|&nbsp; DNS &nbsp;|&nbsp; Verificação de porta</p>
+    <p class="meta">Diagnóstico da rede, da internet e do router MikroTik</p>
   </div>
 </div>
 
@@ -19,10 +19,16 @@
         <button class="tool-tab" data-tool="traceroute">Traceroute</button>
         <button class="tool-tab" data-tool="dig">DNS</button>
         <button class="tool-tab" data-tool="port">Porta</button>
+        <button class="tool-tab" data-tool="whois">Whois / IP</button>
+        <button class="tool-tab" data-tool="speedtest">Velocidade</button>
+        <button class="tool-tab" data-tool="devices">Dispositivos</button>
+        <button class="tool-tab" data-tool="router">Router</button>
       </div>
     </div>
 
-    <div class="field">
+    <p class="tool-desc meta" id="tool-desc"></p>
+
+    <div class="field" id="target-field">
       <label>Alvo (IP ou hostname)</label>
       <input id="target" type="text" placeholder="ex: 8.8.8.8 ou google.com" autocomplete="off" spellcheck="false">
     </div>
@@ -34,6 +40,11 @@
 
     <button class="btn btn-primary btn-block" id="run-btn" onclick="runTool()">Executar</button>
     <button class="btn btn-block" id="stop-btn" style="display:none" onclick="stopTool()">Parar</button>
+
+    <div id="reboot-box" class="reboot-box" style="display:none">
+      <p class="meta">Reiniciar corta a internet e a VPN de toda a casa durante 1–2 minutos.</p>
+      <button class="btn btn-danger btn-block" id="reboot-btn" onclick="rebootRouter()">Reiniciar MikroTik</button>
+    </div>
   </div>
 
   <!-- Output -->
@@ -55,6 +66,9 @@
   <button class="btn btn-sm" onclick="quick('ping','192.168.1.1')">Ping Gateway</button>
   <button class="btn btn-sm" onclick="quick('dig','google.com')">DNS google.com</button>
   <button class="btn btn-sm" onclick="quick('port','192.168.1.1','80')">Porta 80 Gateway</button>
+  <button class="btn btn-sm" onclick="quick('whois','')">O meu IP público</button>
+  <button class="btn btn-sm" onclick="quick('speedtest','')">Teste de velocidade</button>
+  <button class="btn btn-sm" onclick="quick('devices','')">Dispositivos na rede</button>
 </div>
 
 <style>
@@ -108,6 +122,14 @@
   color: #a3e635;
   font-family: monospace;
 }
+.net-output.no-wrap { white-space: pre; word-break: normal; overflow-x: auto; }
+.tool-desc { margin: -6px 0 16px; line-height: 1.5; }
+.reboot-box {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.reboot-box .meta { margin-bottom: 10px; line-height: 1.5; }
 .net-quick {
   display: flex;
   align-items: center;
@@ -123,15 +145,37 @@
 let currentTool = 'ping';
 let evtSource = null;
 
+// Ferramentas sem alvo, com alvo opcional, e com saída em colunas
+const NO_TARGET = ['speedtest', 'devices', 'router'];
+const OPTIONAL_TARGET = ['whois'];
+const COLUMNS = ['devices', 'router'];
+const DESCRIPTIONS = {
+  ping:       'Verifica se um endereço responde e mede a latência.',
+  traceroute: 'Mostra o caminho (saltos) até ao destino.',
+  dig:        'Resolve um nome de domínio para IP.',
+  port:       'Testa se uma porta TCP está aberta.',
+  whois:      'Mostra a quem pertence um IP ou domínio. Deixa vazio para ver o teu IP público.',
+  speedtest:  'Mede a velocidade da internet a partir deste servidor (~30 s).',
+  devices:    'Lista os dispositivos que receberam IP do MikroTik (DHCP).',
+  router:     'Mostra a versão, uptime, CPU e memória do MikroTik.',
+};
+
+function selectTool(tool) {
+  currentTool = tool;
+  document.querySelectorAll('.tool-tab').forEach(b =>
+    b.classList.toggle('active', b.dataset.tool === tool));
+  document.getElementById('port-field').style.display = tool === 'port' ? '' : 'none';
+  document.getElementById('target-field').style.display = NO_TARGET.includes(tool) ? 'none' : '';
+  document.getElementById('target').placeholder = OPTIONAL_TARGET.includes(tool)
+    ? 'vazio = o teu IP público' : 'ex: 8.8.8.8 ou google.com';
+  document.getElementById('reboot-box').style.display = tool === 'router' ? '' : 'none';
+  document.getElementById('tool-desc').textContent = DESCRIPTIONS[tool] || '';
+}
+
 document.querySelectorAll('.tool-tab').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.tool-tab').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    currentTool = btn.dataset.tool;
-    document.getElementById('port-field').style.display =
-      currentTool === 'port' ? '' : 'none';
-  });
+  btn.addEventListener('click', () => selectTool(btn.dataset.tool));
 });
+selectTool('ping');
 
 document.getElementById('target').addEventListener('keydown', e => {
   if (e.key === 'Enter') runTool();
@@ -143,16 +187,19 @@ document.getElementById('port').addEventListener('keydown', e => {
 function runTool() {
   const target = document.getElementById('target').value.trim();
   const port   = document.getElementById('port').value.trim();
-  if (!target) { document.getElementById('target').focus(); return; }
+  const needsTarget = !NO_TARGET.includes(currentTool) && !OPTIONAL_TARGET.includes(currentTool);
+  if (needsTarget && !target) { document.getElementById('target').focus(); return; }
 
   stopTool();
   const out = document.getElementById('output');
   out.textContent = '';
-  document.getElementById('output-label').textContent =
-    `${currentTool.toUpperCase()} → ${target}${port ? ':'+port : ''}`;
+  out.classList.toggle('no-wrap', COLUMNS.includes(currentTool));
+  const tabName = document.querySelector(`.tool-tab[data-tool="${currentTool}"]`).textContent;
+  document.getElementById('output-label').textContent = NO_TARGET.includes(currentTool) || !target
+    ? tabName : `${tabName} → ${target}${port ? ':' + port : ''}`;
 
   const params = new URLSearchParams({ tool: currentTool, target });
-  if (port) params.set('port', port);
+  if (currentTool === 'port' && port) params.set('port', port);
 
   evtSource = new EventSource('/network/run?' + params);
   document.getElementById('run-btn').style.display = 'none';
@@ -184,14 +231,31 @@ function clearOutput() {
 }
 
 function quick(tool, target, port) {
-  document.querySelectorAll('.tool-tab').forEach(b => {
-    b.classList.toggle('active', b.dataset.tool === tool);
-  });
-  currentTool = tool;
+  selectTool(tool);
   document.getElementById('target').value = target;
-  document.getElementById('port-field').style.display = tool === 'port' ? '' : 'none';
   if (port) document.getElementById('port').value = port;
   runTool();
+}
+
+function rebootRouter() {
+  if (!confirm('Reiniciar o MikroTik agora?\n\nA internet e a VPN ficam em baixo durante 1–2 minutos.')) return;
+  const btn = document.getElementById('reboot-btn');
+  const out = document.getElementById('output');
+  btn.disabled = true;
+  btn.textContent = 'A reiniciar…';
+  out.classList.remove('no-wrap');
+  document.getElementById('output-label').textContent = 'Reiniciar MikroTik';
+  const body = new URLSearchParams({ csrf_token: '{{ csrf_token }}' });
+  fetch('{{ url_for("reboot_router") }}', { method: 'POST', body })
+    .then(r => r.json())
+    .then(d => {
+      out.textContent = d.ok
+        ? 'Comando enviado. O MikroTik está a reiniciar — volta dentro de 1–2 minutos.\n' +
+          'Se estás ligado pela VPN, a ligação vai cair e voltar sozinha.'
+        : 'Erro: ' + d.error;
+    })
+    .catch(() => { out.textContent = 'Comando enviado (a ligação caiu, o que é normal durante o reboot).'; })
+    .finally(() => { btn.disabled = false; btn.textContent = 'Reiniciar MikroTik'; });
 }
 </script>
 

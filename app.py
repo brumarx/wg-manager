@@ -1187,6 +1187,116 @@ _NET_TOOLS = {
 _TARGET_RE = re.compile(r'^[a-zA-Z0-9.\-]{1,253}$')
 
 
+def _get_public_ip():
+    import urllib.request
+    with urllib.request.urlopen('https://api.ipify.org', timeout=6) as r:
+        return r.read().decode().strip()
+
+
+def tool_speedtest():
+    yield 'A medir a velocidade da internet a partir deste servidor…'
+    yield '(demora cerca de 30 segundos)'
+    yield ''
+    env = dict(os.environ, PYTHONUNBUFFERED='1')
+    try:
+        proc = subprocess.Popen(['speedtest-cli', '--simple', '--secure'],
+                                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, env=env)
+    except FileNotFoundError:
+        yield "Comando 'speedtest-cli' não encontrado — instala com: sudo apt install speedtest-cli"
+        return
+    labels = {'Ping': 'Latência', 'Download': '↓ Download', 'Upload': '↑ Upload'}
+    for line in proc.stdout:
+        line = line.rstrip()
+        key = line.split(':', 1)[0]
+        if key in labels:
+            line = f'{labels[key]:<12}{line.split(":", 1)[1].strip()}'
+        yield line
+    proc.wait()
+
+
+def tool_devices():
+    """Lista os dispositivos com lease DHCP no Mikrotik."""
+    script = (
+        ':foreach i in=[/ip dhcp-server lease find] do={'
+        ':put ([/ip dhcp-server lease get $i address] . "|" . '
+        '[/ip dhcp-server lease get $i mac-address] . "|" . '
+        '[/ip dhcp-server lease get $i host-name] . "|" . '
+        '[/ip dhcp-server lease get $i status] . "|" . '
+        '[/ip dhcp-server lease get $i comment])'
+        '}\n'
+    )
+    try:
+        out = mikrotik_run(script)
+    except Exception as exc:
+        yield f'Erro a ligar ao Mikrotik: {exc}'
+        return
+    rows = []
+    for line in out.splitlines():
+        parts = line.strip().split('|')
+        if len(parts) < 5 or not parts[0]:
+            continue
+        ip, mac, host, status, comment = (p.strip() for p in parts[:5])
+        try:
+            key = ipaddress.ip_address(ip)
+        except ValueError:
+            continue
+        rows.append((key, ip, mac, comment or host or '—', status))
+    if not rows:
+        yield 'Nenhum dispositivo encontrado no servidor DHCP do Mikrotik.'
+        return
+    rows.sort()
+    online = sum(1 for r in rows if r[4] == 'bound')
+    yield f'{len(rows)} dispositivos conhecidos, {online} ligados agora'
+    yield ''
+    yield f'{"ESTADO":<11}{"IP":<16}{"MAC":<19}NOME'
+    for _, ip, mac, name, status in rows:
+        st = '● ligado' if status == 'bound' else '○ offline'
+        yield f'{st:<11}{ip:<16}{mac:<19}{name}'
+
+
+def tool_router():
+    """Mostra identidade, versão e recursos do Mikrotik."""
+    try:
+        out = mikrotik_run('/system identity print; /system resource print')
+    except Exception as exc:
+        yield f'Erro a ligar ao Mikrotik: {exc}'
+        return
+    for line in out.splitlines():
+        if line.strip():
+            yield line.rstrip()
+
+
+def tool_whois(target):
+    if not target:
+        try:
+            target = _get_public_ip()
+        except Exception as exc:
+            yield f'Não consegui obter o IP público: {exc}'
+            return
+        yield f'IP público deste servidor: {target}'
+        yield ''
+    try:
+        out = subprocess.run(['whois', target], capture_output=True, text=True, timeout=20).stdout
+    except FileNotFoundError:
+        yield "Comando 'whois' não encontrado — instala com: sudo apt install whois"
+        return
+    except subprocess.TimeoutExpired:
+        yield 'O servidor whois não respondeu a tempo.'
+        return
+    lines = [l.rstrip() for l in out.splitlines()
+             if l.strip() and not l.lstrip().startswith(('%', '#', '>>>', 'NOTICE', 'TERMS'))]
+    yield from (lines or ['Sem resultados.'])
+
+
+# Ferramentas que não precisam de alvo
+_NO_TARGET_TOOLS = {
+    'speedtest': tool_speedtest,
+    'devices':   tool_devices,
+    'router':    tool_router,
+}
+
+
 @app.route('/network')
 @login_required
 def network_page():
@@ -1210,8 +1320,22 @@ def network_run():
                         mimetype='text/event-stream',
                         headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
 
+    def stream(gen):
+        return Response(stream_with_context(sse(gen)),
+                        mimetype='text/event-stream',
+                        headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+    if tool in _NO_TARGET_TOOLS:
+        return stream(_NO_TARGET_TOOLS[tool]())
+
+    if tool == 'whois' and not target:
+        return stream(tool_whois(''))
+
     if not _TARGET_RE.match(target):
         return err('Alvo inválido.')
+
+    if tool == 'whois':
+        return stream(tool_whois(target))
 
     if tool == 'port':
         def port_check():
@@ -1253,6 +1377,32 @@ def network_run():
     return Response(stream_with_context(sse(run_cmd())),
                     mimetype='text/event-stream',
                     headers={'Cache-Control': 'no-cache', 'X-Accel-Buffering': 'no'})
+
+
+@app.route('/network/reboot-router', methods=['POST'])
+@login_required
+def reboot_router():
+    """Reinicia o Mikrotik. A ligação SSH cai durante o reboot, por isso
+    um erro depois de enviar o comando é o resultado esperado."""
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        client.connect(MIKROTIK_HOST, port=MIKROTIK_PORT, username=MIKROTIK_USER,
+                       password=MIKROTIK_PASS, timeout=8, look_for_keys=False,
+                       allow_agent=False)
+    except Exception as exc:
+        return jsonify(ok=False, error=f'Erro a ligar ao Mikrotik: {exc}'), 502
+    try:
+        stdin, _, _ = client.exec_command('/system reboot', timeout=5)
+        stdin.write('y\n')  # responde à confirmação "Reboot, yes? [y/N]"
+        stdin.flush()
+        time.sleep(2)
+    except Exception:
+        pass
+    finally:
+        client.close()
+    log_action('reiniciar_router', f'Mikrotik {MIKROTIK_HOST} reiniciado pelo painel')
+    return jsonify(ok=True)
 
 
 if __name__ == '__main__':
