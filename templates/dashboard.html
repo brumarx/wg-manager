@@ -9,7 +9,7 @@
        Chave pública: <code class="truncate">{{ server.public_key[:24] }}…</code>
     </p>
   </div>
-  <div style="display:flex;gap:.5rem">
+  <div class="header-actions">
     <form method="post" action="{{ url_for('import_peers') }}"
           onsubmit="return confirm('Sincronizar peers que existam no Mikrotik mas não na lista abaixo?')">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -93,7 +93,7 @@ setInterval(refreshSysinfo, 5000);
 </script>
 
 {% if peers %}
-<table>
+<table class="table-cards">
   <thead>
     <tr>
       <th>Nome</th>
@@ -109,9 +109,9 @@ setInterval(refreshSysinfo, 5000);
   <tbody>
     {% for p in peers %}
     <tr>
-      <td><strong>{{ p.name }}</strong></td>
-      <td><code>{{ p.ip_address }}</code></td>
-      <td>
+      <td class="card-title"><strong>{{ p.name }}</strong></td>
+      <td data-label="IP VPN"><code>{{ p.ip_address }}</code></td>
+      <td data-label="Estado">
         {% if p.expired %}
           <span class="badge badge-danger">Expirado</span>
         {% elif p.enabled %}
@@ -120,28 +120,28 @@ setInterval(refreshSysinfo, 5000);
           <span class="badge badge-off">Inativo</span>
         {% endif %}
       </td>
-      <td>
+      <td data-label="Online">
         {% if p.online %}
           <span class="badge badge-ok">&#9679; Ligado</span>
         {% else %}
           <span class="badge badge-neutral">&#9675; Offline</span>
         {% endif %}
       </td>
-      <td>
+      <td data-label="Acesso">
         {% if p.full_tunnel %}
           <span class="meta">Total</span>
         {% else %}
           <span class="meta">Só rede local</span>
         {% endif %}
       </td>
-      <td>
+      <td data-label="Expira">
         {% if p.expires_at %}
           <code class="small">{{ p.expires_at }}</code>
         {% else %}
           <span class="muted">—</span>
         {% endif %}
       </td>
-      <td>{{ p.created_at }}</td>
+      <td data-label="Criado em">{{ p.created_at }}</td>
       <td class="actions">
         <button class="btn btn-sm btn-edit-peer"
                 data-id="{{ p.id }}" data-name="{{ p.name }}" data-ip="{{ p.ip_address }}"

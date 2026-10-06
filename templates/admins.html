@@ -9,7 +9,7 @@
   <button class="btn btn-primary" onclick="openModal('modal-add')">+ Novo administrador</button>
 </div>
 
-<table>
+<table class="table-cards">
   <thead>
     <tr>
       <th>Utilizador</th>
@@ -19,7 +19,7 @@
   <tbody>
     {% for a in admins %}
     <tr>
-      <td><strong>{{ a.username }}</strong>{% if a.username == session.user %} <span class="badge badge-ok">tu</span>{% endif %}</td>
+      <td class="card-title"><strong>{{ a.username }}</strong>{% if a.username == session.user %} <span class="badge badge-ok">tu</span>{% endif %}</td>
       <td class="actions">
         <form method="post" action="{{ url_for('admins_delete', admin_id=a.id) }}" style="display:inline"
               class="form-delete-admin" data-name="{{ a.username }}">

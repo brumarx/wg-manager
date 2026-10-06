@@ -11,7 +11,7 @@
   </div>
 </div>
 
-<table id="stats-table">
+<table id="stats-table" class="table-cards">
   <thead>
     <tr>
       <th>Utilizador</th>
@@ -28,35 +28,35 @@
   <tbody>
     {% for p in peers %}
     <tr id="row-{{ p.id }}">
-      <td><strong>{{ p.name }}</strong></td>
-      <td><code>{{ p.ip_address }}</code></td>
-      <td class="col-online">
+      <td class="card-title"><strong>{{ p.name }}</strong></td>
+      <td data-label="IP VPN"><code>{{ p.ip_address }}</code></td>
+      <td data-label="Estado" class="col-online">
         {% if p.online %}
           <span class="badge badge-ok">&#9679; Ligado</span>
         {% else %}
           <span class="badge badge-neutral">&#9675; Offline</span>
         {% endif %}
       </td>
-      <td class="col-handshake">
+      <td data-label="Último acesso" class="col-handshake">
         {% if p.last_handshake %}
           <span title="{{ p.last_handshake }}">{{ p.last_handshake | int | ts_ago }}</span>
         {% else %}
           <span class="muted">Nunca</span>
         {% endif %}
       </td>
-      <td class="col-endpoint">
+      <td data-label="Endpoint" class="col-endpoint">
         {% if p.endpoint %}
           <code class="small">{{ p.endpoint }}</code>
         {% else %}
           <span class="muted">—</span>
         {% endif %}
       </td>
-      <td class="col-rx" data-bytes="{{ p.total_rx }}">{{ p.total_rx | fmt_bytes }}</td>
-      <td class="col-tx" data-bytes="{{ p.total_tx }}">{{ p.total_tx | fmt_bytes }}</td>
-      <td class="col-total" data-bytes="{{ p.total_rx + p.total_tx }}">
+      <td data-label="↓ Download" class="col-rx" data-bytes="{{ p.total_rx }}">{{ p.total_rx | fmt_bytes }}</td>
+      <td data-label="↑ Upload" class="col-tx" data-bytes="{{ p.total_tx }}">{{ p.total_tx | fmt_bytes }}</td>
+      <td data-label="Total" class="col-total" data-bytes="{{ p.total_rx + p.total_tx }}">
         {{ (p.total_rx + p.total_tx) | fmt_bytes }}
       </td>
-      <td>
+      <td data-label="Últimos 14 dias">
         {% if p.history %}
         <svg class="sparkline" width="{{ p.history|length * 10 }}" height="28" viewBox="0 0 {{ p.history|length * 10 }} 28">
           {% for h in p.history %}
@@ -125,7 +125,8 @@ setInterval(refresh, 30000);
 <style>
 .muted { color: #999; }
 .small { font-size: .82em; }
-#stats-table td { white-space: nowrap; }
+@media (min-width: 701px) { #stats-table td { white-space: nowrap; } }
+
 </style>
 
 {% endblock %}

@@ -10,7 +10,7 @@
 </div>
 
 {% if machines %}
-<table>
+<table class="table-cards">
   <thead>
     <tr>
       <th>Nome</th>
@@ -21,8 +21,8 @@
   <tbody>
     {% for m in machines %}
     <tr>
-      <td><strong>{{ m.name }}</strong></td>
-      <td><code>{{ m.mac }}</code></td>
+      <td class="card-title"><strong>{{ m.name }}</strong></td>
+      <td data-label="MAC Address"><code>{{ m.mac }}</code></td>
       <td class="actions">
         <form method="post" action="{{ url_for('wol_send', mid=m.id) }}" style="display:inline">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">

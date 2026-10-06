@@ -9,7 +9,7 @@
 </div>
 
 {% if entries %}
-<table>
+<table class="table-cards">
   <thead>
     <tr>
       <th>Quando</th>
@@ -21,10 +21,10 @@
   <tbody>
     {% for e in entries %}
     <tr>
-      <td><code class="small">{{ e.ts }}</code></td>
-      <td>{{ e.admin }}</td>
-      <td><span class="badge badge-neutral">{{ e.action }}</span></td>
-      <td>{{ e.details }}</td>
+      <td data-label="Quando"><code class="small">{{ e.ts }}</code></td>
+      <td data-label="Quem">{{ e.admin }}</td>
+      <td data-label="Ação"><span class="badge badge-neutral">{{ e.action }}</span></td>
+      <td data-label="Detalhes">{{ e.details }}</td>
     </tr>
     {% endfor %}
   </tbody>

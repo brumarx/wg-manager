@@ -10,6 +10,8 @@
   {% if session.user %}
   <nav>
     <span class="nav-brand">&#9632; WireGuard Manager</span>
+    <button type="button" class="nav-toggle" aria-label="Menu" aria-expanded="false"
+            onclick="var o=this.parentNode.classList.toggle('nav-open');this.setAttribute('aria-expanded',o)">&#9776;</button>
     <div class="nav-right">
       <span class="nav-user">{{ session.user }}</span>
       <a href="{{ url_for('dashboard') }}" class="btn btn-sm">Utilizadores</a>
