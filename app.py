@@ -516,6 +516,23 @@ def import_peers_from_conf(iface):
     return imported, None
 
 
+AUTO_SYNC_INTERVAL = 60  # segundos entre sincronizações automáticas
+_last_auto_sync = 0.0
+
+
+def auto_sync_peers(iface):
+    """Importa peers novos do Mikrotik ao abrir o painel, no máximo uma vez
+    por AUTO_SYNC_INTERVAL. Falhas são silenciosas (o botão manual mostra o erro)."""
+    global _last_auto_sync
+    if time.time() - _last_auto_sync < AUTO_SYNC_INTERVAL:
+        return
+    _last_auto_sync = time.time()
+    count, err = import_peers_from_conf(iface)
+    if not err and count:
+        log_action('sincronizar', f'{count} peer(s) importados do Mikrotik (automático)')
+        flash(f'{count} peer(s) novo(s) encontrado(s) no Mikrotik e adicionado(s).')
+
+
 # ---------------------------------------------------------------------------
 # Auth
 # ---------------------------------------------------------------------------
@@ -614,6 +631,7 @@ def logout():
 def dashboard():
     iface = detect_interface()
     check_expirations()
+    auto_sync_peers(iface)
     update_peer_stats(iface)
     active_keys = wg_status(iface)
     conn = get_db()
