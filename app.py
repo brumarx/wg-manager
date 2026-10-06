@@ -10,7 +10,7 @@ import io
 import base64
 import time
 from functools import wraps
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import qrcode
 from flask import (Flask, render_template, request, redirect,
@@ -20,6 +20,10 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(32))
+REPO_URL = os.environ.get('REPO_URL', 'https://github.com/brumarx/wg-manager')
+app.permanent_session_lifetime = timedelta(days=30)  # "Manter sessão iniciada"
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
 
 @app.template_filter('fmt_bytes')
@@ -558,7 +562,8 @@ def get_csrf_token():
 
 @app.context_processor
 def inject_csrf_token():
-    return {'csrf_token': get_csrf_token()}
+    return {'csrf_token': get_csrf_token(), 'server_name': socket.gethostname(),
+            'repo_url': REPO_URL}
 
 
 @app.before_request
@@ -614,9 +619,11 @@ def login():
         conn.close()
         if row and check_password_hash(row['password_hash'], password):
             session['user'] = username
+            session.permanent = bool(request.form.get('remember'))
             log_action('login', 'sessão iniciada')
             return redirect(url_for('dashboard'))
-        flash('Credenciais inválidas.')
+        flash('Utilizador ou password incorretos.')
+        return render_template('login.html', username=username)
     return render_template('login.html')
 
 
