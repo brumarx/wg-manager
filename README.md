@@ -41,6 +41,10 @@ Este painel resolve isso falando diretamente com o RouterOS por SSH.
   router (Winbox) para a base de dados do painel. Corre automaticamente ao
   abrir a página de utilizadores (no máximo uma vez por minuto); o botão
   "Sincronizar do Mikrotik" força-a na hora e mostra erros de ligação.
+- **Configuração do MikroTik** — nome, fuso horário e DNS; intervalo do DHCP e
+  IPs fixos; redirecionamento de portas; ativar/desativar regras da firewall
+  (as de base ficam protegidas); bloquear dispositivos agora ou por horário.
+  Antes de cada alteração é feito um backup no router (máx. 1 a cada 10 min).
 - **Backups do MikroTik** — página com backup completo no router (restaura-se
   com um clique) e export em texto guardado no Pi (pasta `backups/`).
   Backup automático a cada 7 dias (`BACKUP_INTERVAL_DAYS`).

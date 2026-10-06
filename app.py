@@ -1596,6 +1596,149 @@ def backups_export_delete(name):
     return redirect(url_for('backups_page'))
 
 
+# ---------------------------------------------------------------------------
+# Configuração do MikroTik
+# ---------------------------------------------------------------------------
+
+MK_TABS = [('sistema', 'Sistema'), ('rede', 'Rede e DHCP'), ('portas', 'Portas'),
+           ('firewall', 'Firewall'), ('controlo', 'Controlo')]
+PRE_BACKUP_INTERVAL = 600  # no máximo um backup "antes de alteração" a cada 10 min
+_last_pre_backup = 0.0
+
+
+def _timezones():
+    import zoneinfo
+    return sorted(z for z in zoneinfo.available_timezones() if '/' in z and not z.startswith(('Etc/', 'SystemV/')))
+
+
+def _backup_before_change():
+    global _last_pre_backup
+    if time.time() - _last_pre_backup < PRE_BACKUP_INTERVAL:
+        return
+    mkcfg.create_router_backup(mikrotik_run, pre=True)
+    _last_pre_backup = time.time()
+
+
+def _gateway():
+    net = mkcfg.get_dhcp(mikrotik_run)['network']
+    return net.get('gateway', '')
+
+
+def _mk_action(action, f):
+    """Executa uma alteração. Devolve (mensagem, detalhe para a auditoria)."""
+    run, lan = mikrotik_run, LAN_NETWORK
+    if action == 'identity':
+        mkcfg.set_identity(run, f.get('name'))
+        return 'Nome do router alterado.', f.get('name')
+    if action == 'timezone':
+        mkcfg.set_timezone(run, f.get('timezone'), set(_timezones()))
+        return 'Fuso horário alterado.', f.get('timezone')
+    if action == 'dns':
+        servers = re.split(r'[\s,;]+', f.get('servers', ''))
+        mkcfg.set_dns(run, servers)
+        return 'Servidores DNS alterados.', ', '.join(x for x in servers if x)
+    if action == 'lease_time':
+        mkcfg.set_lease_time(run, f.get('server_id'), f.get('lease_time'))
+        return 'Tempo de lease alterado.', f.get('lease_time')
+    if action == 'pool':
+        mkcfg.set_pool_range(run, f.get('pool_id'), f.get('start'), f.get('end'), lan, _gateway())
+        return 'Intervalo do DHCP alterado.', f'{f.get("start")}-{f.get("end")}'
+    if action == 'lease_update':
+        mkcfg.update_lease(run, f.get('lease_id'), f.get('address'), f.get('comment'), lan, _gateway())
+        return f'IP {f.get("address")} fixado para "{f.get("comment") or f.get("address")}".', \
+            f'{f.get("comment")} -> {f.get("address")}'
+    if action == 'lease_add':
+        mkcfg.add_static_lease(run, f.get('mac'), f.get('address'), f.get('comment'), lan, _gateway())
+        return f'IP {f.get("address")} reservado.', f'{f.get("mac")} -> {f.get("address")}'
+    if action == 'lease_remove':
+        mkcfg.remove_lease(run, f.get('lease_id'))
+        return 'IP fixo removido — o dispositivo volta a receber um IP automático.', f.get('lease_id')
+    if action == 'pf_add':
+        mkcfg.add_port_forward(run, f.get('name'), f.get('protocol'), f.get('ext_port'),
+                               f.get('ip'), f.get('int_port'), lan)
+        return f'Porta {f.get("ext_port")} redirecionada para {f.get("ip")}.', \
+            f'{f.get("name")}: {f.get("protocol")} {f.get("ext_port")} -> {f.get("ip")}:{f.get("int_port") or f.get("ext_port")}'
+    if action == 'pf_toggle':
+        on = f.get('enable') == '1'
+        mkcfg.set_port_forward_enabled(run, f.get('rule_id'), on)
+        return ('Redirecionamento ativado.' if on else 'Redirecionamento desativado.'), f.get('rule_id')
+    if action == 'pf_remove':
+        mkcfg.remove_port_forward(run, f.get('rule_id'))
+        return 'Redirecionamento removido.', f.get('rule_id')
+    if action == 'fw_toggle':
+        on = f.get('enable') == '1'
+        mkcfg.set_filter_enabled(run, f.get('rule_id'), on)
+        return ('Regra ativada.' if on else 'Regra desativada.'), f.get('rule_id')
+    if action == 'block':
+        lease = mkcfg.block_device(run, f.get('lease_id'))
+        return f'Internet cortada a {f.get("label") or lease["address"]}.', f'{lease["mac-address"]} {lease["address"]}'
+    if action == 'unblock':
+        lease = mkcfg.unblock_device(run, f.get('lease_id'))
+        return f'Internet devolvida a {f.get("label") or lease["address"]}.', f'{lease["mac-address"]} {lease["address"]}'
+    if action == 'schedule_set':
+        days = f.getlist('days')
+        mkcfg.set_schedule(run, f.get('lease_id'), f.get('start'), f.get('end'), days)
+        return f'Horário guardado: sem internet das {f.get("start")} às {f.get("end")}.', \
+            f'{f.get("label")}: {f.get("start")}-{f.get("end")} {",".join(days)}'
+    if action == 'schedule_clear':
+        lease = mkcfg.clear_schedule(run, f.get('lease_id'))
+        return 'Horário removido.', f'{lease["mac-address"]}'
+    raise mkcfg.RouterError('Ação desconhecida.')
+
+
+@app.route('/mikrotik')
+@login_required
+def mikrotik_page():
+    tab = request.args.get('tab', 'sistema')
+    if tab not in dict(MK_TABS):
+        tab = 'sistema'
+    data, error = {}, None
+    try:
+        run = mikrotik_run
+        if tab == 'sistema':
+            data['system'] = mkcfg.get_system(run)
+            data['timezones'] = _timezones()
+        elif tab == 'rede':
+            data['dhcp'] = mkcfg.get_dhcp(run)
+            data['lease_times'] = mkcfg.LEASE_TIMES
+            data['lease_time_current'] = mkcfg.lease_time_label(data['dhcp']['server'].get('lease-time'))
+        elif tab == 'portas':
+            data['forwards'] = mkcfg.list_port_forwards(run)
+            data['wan'] = mkcfg.get_wan(run)
+            data['leases'] = mkcfg.get_dhcp(run)['leases']
+        elif tab == 'firewall':
+            data['rules'] = mkcfg.list_filter_rules(run)
+        elif tab == 'controlo':
+            data['leases'] = mkcfg.get_dhcp(run)['leases']
+            data['control'] = mkcfg.get_control(run)
+            data['days'] = mkcfg.DAYS
+            data['day_names'] = mkcfg.DAY_NAMES
+    except Exception as exc:
+        error = f'Não consegui ler a configuração do MikroTik: {exc}'
+    return render_template('mikrotik.html', tab=tab, tabs=MK_TABS, error=error,
+                           lan=LAN_NETWORK, **data)
+
+
+@app.route('/mikrotik/action', methods=['POST'])
+@login_required
+def mikrotik_action():
+    action = request.form.get('action', '')
+    tab = request.form.get('tab', 'sistema')
+    if tab not in dict(MK_TABS):
+        tab = 'sistema'
+    try:
+        _backup_before_change()
+        message, detail = _mk_action(action, request.form)
+    except mkcfg.RouterError as exc:
+        flash(str(exc))
+    except Exception as exc:
+        flash(f'Erro a falar com o MikroTik: {exc}')
+    else:
+        log_action(f'mikrotik_{action}', detail or '')
+        flash(message)
+    return redirect(url_for('mikrotik_page', tab=tab))
+
+
 if __name__ == '__main__':
     init_db()
     migrate_db()

@@ -1,0 +1,497 @@
+{% extends "base.html" %}
+{% block content %}
+
+{% macro action_form(action, label, cls='btn-sm', confirm_msg='', fields={}) -%}
+<form method="post" action="{{ url_for('mikrotik_action') }}" class="mk-form{% if confirm_msg %} mk-confirm{% endif %}"
+      {% if confirm_msg %}data-msg="{{ confirm_msg }}"{% endif %}>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="tab" value="{{ tab }}">
+  <input type="hidden" name="action" value="{{ action }}">
+  {% for k, v in fields.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+  <button class="btn {{ cls }}">{{ label }}</button>
+</form>
+{%- endmacro %}
+
+{% macro hidden(action) -%}
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <input type="hidden" name="tab" value="{{ tab }}">
+  <input type="hidden" name="action" value="{{ action }}">
+{%- endmacro %}
+
+<div class="page-header">
+  <div>
+    <h2>Configuração do MikroTik</h2>
+    <p class="meta">Antes de cada alteração é feito um backup automático no router —
+      podes voltar atrás em <a href="{{ url_for('backups_page') }}">Backups</a>.</p>
+  </div>
+</div>
+
+<div class="mk-tabs">
+  {% for key, label in tabs %}
+  <a href="{{ url_for('mikrotik_page', tab=key) }}" class="mk-tab{% if key == tab %} active{% endif %}">{{ label }}</a>
+  {% endfor %}
+</div>
+
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+
+{# ======================= SISTEMA ======================= #}
+{% elif tab == 'sistema' %}
+<div class="sysinfo-bar mk-info">
+  <div class="sysinfo-card"><div class="sysinfo-label">Modelo</div><div class="sysinfo-value">{{ system.model }}</div></div>
+  <div class="sysinfo-card"><div class="sysinfo-label">RouterOS</div><div class="sysinfo-value">{{ system.version }}</div></div>
+  <div class="sysinfo-card"><div class="sysinfo-label">Ligado há</div><div class="sysinfo-value">{{ system.uptime }}</div></div>
+  <div class="sysinfo-card"><div class="sysinfo-label">CPU</div><div class="sysinfo-value">{{ system.cpu_load }}%</div></div>
+  <div class="sysinfo-card"><div class="sysinfo-label">Memória livre</div>
+    <div class="sysinfo-value">{{ system.free_memory_mb }} / {{ system.total_memory_mb }} MB</div></div>
+</div>
+
+{% if system.firmware_outdated %}
+<div class="alert">
+  O firmware da placa ({{ system.firmware }}) é mais antigo que o RouterOS ({{ system.firmware_upgrade }}).
+  Não é urgente; atualiza-se no WinBox em <em>System → RouterBOARD → Upgrade</em> e depois reiniciando o router.
+</div>
+{% endif %}
+
+<div class="mk-grid">
+  <form method="post" action="{{ url_for('mikrotik_action') }}" class="net-card mk-form">
+    {{ hidden('identity') }}
+    <h3>Nome do router</h3>
+    <div class="field">
+      <label for="f-name">Nome</label>
+      <input id="f-name" name="name" value="{{ system.identity }}" pattern="[A-Za-z0-9._\-]{1,40}" required>
+    </div>
+    <button class="btn btn-primary">Guardar</button>
+  </form>
+
+  <form method="post" action="{{ url_for('mikrotik_action') }}" class="net-card mk-form">
+    {{ hidden('timezone') }}
+    <h3>Data e hora</h3>
+    <p class="meta mk-p">Agora no router: {{ system.date }} {{ system.time }}</p>
+    <div class="field">
+      <label for="f-tz">Fuso horário</label>
+      <select id="f-tz" name="timezone">
+        {% for tz in timezones %}<option{% if tz == system.timezone %} selected{% endif %}>{{ tz }}</option>{% endfor %}
+      </select>
+    </div>
+    <button class="btn btn-primary">Guardar</button>
+  </form>
+
+  <form method="post" action="{{ url_for('mikrotik_action') }}" class="net-card mk-form">
+    {{ hidden('dns') }}
+    <h3>Servidores DNS</h3>
+    <p class="meta mk-p">Usados pelo router e por todos os dispositivos da casa.</p>
+    <div class="field">
+      <label for="f-dns">Servidores (separados por vírgula)</label>
+      <input id="f-dns" name="servers" value="{{ system.dns_servers | join(', ') }}" required>
+    </div>
+    <div class="mk-presets">
+      <button type="button" class="btn btn-sm" data-dns="1.1.1.1, 1.0.0.1">Cloudflare</button>
+      <button type="button" class="btn btn-sm" data-dns="8.8.8.8, 8.8.4.4">Google</button>
+      <button type="button" class="btn btn-sm" data-dns="9.9.9.9, 149.112.112.112">Quad9</button>
+      <button type="button" class="btn btn-sm" data-dns="1.1.1.3, 1.0.0.3">Cloudflare família</button>
+    </div>
+    <button class="btn btn-primary">Guardar</button>
+  </form>
+
+  <div class="net-card">
+    <h3>Wi-Fi</h3>
+    {% if system.has_wifi %}
+      <p class="meta mk-p">Este router tem Wi-Fi, mas a configuração ainda não está disponível aqui.</p>
+    {% else %}
+      <p class="meta mk-p">O {{ system.model }} (hEX S) não tem Wi-Fi. A rede sem fios da casa vem de outro
+        aparelho (a box da operadora ou um ponto de acesso), e configura-se nesse aparelho.</p>
+    {% endif %}
+  </div>
+</div>
+
+{# ======================= REDE ======================= #}
+{% elif tab == 'rede' %}
+{% set pool_range = (dhcp.pool.ranges or '-').split('-') %}
+<div class="mk-grid">
+  <form method="post" action="{{ url_for('mikrotik_action') }}" class="net-card mk-form mk-confirm"
+        data-msg="Mudar o intervalo do DHCP? Dispositivos fora do novo intervalo recebem um IP novo quando renovarem.">
+    {{ hidden('pool') }}
+    <input type="hidden" name="pool_id" value="{{ dhcp.pool['.id'] }}">
+    <h3>IPs automáticos (DHCP)</h3>
+    <p class="meta mk-p">Rede {{ dhcp.network.address }} · router {{ dhcp.network.gateway }} · DNS {{ dhcp.network['dns-server'] }}</p>
+    <div class="mk-row">
+      <div class="field"><label for="f-start">De</label><input id="f-start" name="start" value="{{ pool_range[0] }}" required></div>
+      <div class="field"><label for="f-end">Até</label><input id="f-end" name="end" value="{{ pool_range[1] if pool_range|length > 1 else '' }}" required></div>
+    </div>
+    <button class="btn btn-primary">Guardar intervalo</button>
+  </form>
+
+  <form method="post" action="{{ url_for('mikrotik_action') }}" class="net-card mk-form">
+    {{ hidden('lease_time') }}
+    <input type="hidden" name="server_id" value="{{ dhcp.server['.id'] }}">
+    <h3>Duração do IP</h3>
+    <p class="meta mk-p">Quanto tempo um dispositivo fica com o mesmo IP automático. Agora: {{ lease_time_current or dhcp.server['lease-time'] }}.</p>
+    <div class="field">
+      <label for="f-lt">Duração</label>
+      <select id="f-lt" name="lease_time">
+        {% for lt in lease_times %}<option{% if lt == lease_time_current %} selected{% endif %}>{{ lt }}</option>{% endfor %}
+      </select>
+    </div>
+    <button class="btn btn-primary">Guardar</button>
+  </form>
+</div>
+
+<div class="page-header mk-subheader">
+  <div>
+    <h3>Dispositivos</h3>
+    <p class="meta">"Fixar IP" faz o dispositivo receber sempre o mesmo endereço.</p>
+  </div>
+  <button class="btn btn-primary" onclick="openLease('', '', '', '')">+ Reservar IP</button>
+</div>
+
+<table class="table-cards">
+  <thead><tr><th>Nome</th><th>IP</th><th>MAC</th><th>Estado</th><th>Tipo</th><th>Ações</th></tr></thead>
+  <tbody>
+    {% for l in dhcp.leases %}
+    <tr>
+      <td class="card-title"><strong>{{ l.name or '(sem nome)' }}</strong></td>
+      <td data-label="IP"><code>{{ l.address }}</code></td>
+      <td data-label="MAC"><code class="small">{{ l['mac-address'] }}</code></td>
+      <td data-label="Estado">
+        {% if l.status == 'bound' %}<span class="badge badge-ok">&#9679; Ligado</span>
+        {% else %}<span class="badge badge-neutral">&#9675; Offline</span>{% endif %}
+      </td>
+      <td data-label="Tipo">
+        {% if l.dynamic %}<span class="meta">Automático</span>{% else %}<span class="badge badge-ok">IP fixo</span>{% endif %}
+      </td>
+      <td class="actions">
+        <button class="btn btn-sm" onclick="openLease('{{ l['.id'] }}', '{{ l.address }}', '{{ l['mac-address'] }}', {{ (l.comment or l['host-name'] or '') | tojson | forceescape }})">
+          {{ 'Fixar IP' if l.dynamic else 'Editar' }}
+        </button>
+        {% if not l.dynamic %}
+        {{ action_form('lease_remove', 'Remover IP fixo', 'btn-sm btn-danger',
+             'Remover o IP fixo de ' ~ (l.name or l.address) ~ '? Passa a receber um IP automático.',
+             {'lease_id': l['.id']}) }}
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<div id="modal-lease" class="modal" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+  <div class="modal-box">
+    <h3 id="lease-title">Fixar IP</h3>
+    <form method="post" action="{{ url_for('mikrotik_action') }}" class="mk-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="tab" value="rede">
+      <input type="hidden" name="action" id="lease-action" value="lease_update">
+      <input type="hidden" name="lease_id" id="lease-id">
+      <div class="field" id="lease-mac-field">
+        <label for="lease-mac">MAC do dispositivo</label>
+        <input id="lease-mac" name="mac" placeholder="AA:BB:CC:DD:EE:FF">
+      </div>
+      <div class="field">
+        <label for="lease-name">Nome</label>
+        <input id="lease-name" name="comment" placeholder="ex: TV da sala" maxlength="60">
+      </div>
+      <div class="field">
+        <label for="lease-ip">IP fixo</label>
+        <input id="lease-ip" name="address" required>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn" onclick="closeModal('modal-lease')">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ======================= PORTAS ======================= #}
+{% elif tab == 'portas' %}
+{% if wan.private %}
+<div class="alert">
+  <strong>Atenção:</strong> o MikroTik está atrás da box da operadora (a WAN dele é <code>{{ wan.address }}</code>,
+  um IP privado). Para uma porta funcionar a partir da internet tens também de a redirecionar na box para
+  <code>{{ wan.address }}</code> — ou pôr esse IP em DMZ na box.
+</div>
+{% endif %}
+
+<div class="page-header mk-subheader">
+  <div>
+    <h3>Redirecionamento de portas</h3>
+    <p class="meta">Encaminha uma porta vinda da internet para um dispositivo da casa (ex.: Plex, câmaras, jogos).</p>
+  </div>
+  <button class="btn btn-primary" onclick="openModal('modal-pf')">+ Nova regra</button>
+</div>
+
+{% if forwards %}
+<table class="table-cards">
+  <thead><tr><th>Nome</th><th>Protocolo</th><th>Porta externa</th><th>Destino</th><th>Estado</th><th>Ações</th></tr></thead>
+  <tbody>
+    {% for r in forwards %}
+    <tr>
+      <td class="card-title"><strong>{{ r.comment or '(sem nome)' }}</strong></td>
+      <td data-label="Protocolo">{{ (r.protocol or 'todos') | upper }}</td>
+      <td data-label="Porta externa"><code>{{ r['dst-port'] or '—' }}</code></td>
+      <td data-label="Destino"><code>{{ r['to-addresses'] }}{% if r['to-ports'] %}:{{ r['to-ports'] }}{% endif %}</code></td>
+      <td data-label="Estado">
+        {% if r.disabled %}<span class="badge badge-off">Desativada</span>{% else %}<span class="badge badge-ok">Ativa</span>{% endif %}
+      </td>
+      <td class="actions">
+        {{ action_form('pf_toggle', 'Ativar' if r.disabled else 'Desativar',
+             'btn-sm btn-ok' if r.disabled else 'btn-sm btn-warn', '', {'rule_id': r['.id'], 'enable': '1' if r.disabled else '0'}) }}
+        {{ action_form('pf_remove', 'Remover', 'btn-sm btn-danger',
+             'Remover o redirecionamento ' ~ (r.comment or r['dst-port']) ~ '?', {'rule_id': r['.id']}) }}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="empty"><p>Nenhuma porta redirecionada.</p></div>
+{% endif %}
+
+<datalist id="lan-devices">
+  {% for l in leases %}<option value="{{ l.address }}">{{ l.name }}</option>{% endfor %}
+</datalist>
+
+<div id="modal-pf" class="modal" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+  <div class="modal-box">
+    <h3>Nova regra de porta</h3>
+    <form method="post" action="{{ url_for('mikrotik_action') }}" class="mk-form">
+      {{ hidden('pf_add') }}
+      <div class="field">
+        <label for="pf-name">Nome</label>
+        <input id="pf-name" name="name" placeholder="ex: Plex" maxlength="40" required>
+      </div>
+      <div class="field">
+        <label for="pf-proto">Protocolo</label>
+        <select id="pf-proto" name="protocol">
+          <option value="tcp">TCP</option><option value="udp">UDP</option><option value="both">TCP e UDP</option>
+        </select>
+      </div>
+      <div class="mk-row">
+        <div class="field"><label for="pf-ext">Porta externa</label><input id="pf-ext" name="ext_port" placeholder="32400" required></div>
+        <div class="field"><label for="pf-int">Porta interna</label><input id="pf-int" name="int_port" placeholder="igual"></div>
+      </div>
+      <div class="field">
+        <label for="pf-ip">Dispositivo (IP na rede de casa)</label>
+        <input id="pf-ip" name="ip" list="lan-devices" placeholder="192.168.1.70" required>
+      </div>
+      <p class="meta mk-p">Dica: dá um IP fixo ao dispositivo (separador Rede) para a regra não deixar de funcionar.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn" onclick="closeModal('modal-pf')">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Criar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+{# ======================= FIREWALL ======================= #}
+{% elif tab == 'firewall' %}
+<div class="page-header mk-subheader">
+  <div>
+    <h3>Regras da firewall</h3>
+    <p class="meta">Pela ordem em que o router as aplica. As marcadas com 🔒 são a proteção base do router
+      ou geridas pelo painel, e não se alteram aqui.</p>
+  </div>
+</div>
+{% set chain_names = {'input': 'Para o router', 'forward': 'Atravessa o router', 'output': 'Do router'} %}
+{% set action_names = {'accept': 'Permitir', 'drop': 'Bloquear', 'reject': 'Rejeitar', 'fasttrack-connection': 'Acelerar', 'passthrough': 'Contar'} %}
+<table class="table-cards">
+  <thead><tr><th>Regra</th><th>Tráfego</th><th>Ação</th><th>Condições</th><th>Pacotes</th><th>Estado</th></tr></thead>
+  <tbody>
+    {% for r in rules %}
+    <tr{% if r.disabled %} class="mk-disabled"{% endif %}>
+      <td class="card-title">{% if r.locked %}🔒 {% endif %}{{ r.comment or '(sem descrição)' }}</td>
+      <td data-label="Tráfego">{{ chain_names.get(r.chain, r.chain) }}</td>
+      <td data-label="Ação">
+        {% set a = r.action %}
+        <span class="badge {{ 'badge-ok' if a == 'accept' else 'badge-danger' if a in ('drop', 'reject') else 'badge-neutral' }}">{{ action_names.get(a, a) }}</span>
+      </td>
+      <td data-label="Condições"><span class="small">{{ r.summary or 'todo o tráfego' }}</span></td>
+      <td data-label="Pacotes">{{ r.packets }}</td>
+      <td class="actions">
+        {% if r.locked %}
+          <span class="meta">{{ 'Desativada' if r.disabled else 'Ativa' }}</span>
+        {% else %}
+          {{ action_form('fw_toggle', 'Ativar' if r.disabled else 'Desativar',
+               'btn-sm btn-ok' if r.disabled else 'btn-sm btn-warn',
+               '' if r.disabled else 'Desativar a regra "' ~ (r.comment or r['.id']) ~ '"?',
+               {'rule_id': r['.id'], 'enable': '1' if r.disabled else '0'}) }}
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+{# ======================= CONTROLO ======================= #}
+{% elif tab == 'controlo' %}
+<div class="page-header mk-subheader">
+  <div>
+    <h3>Controlo de acesso</h3>
+    <p class="meta">Corta a internet a um dispositivo agora, ou todos os dias a certas horas
+      (ex.: telemóvel das crianças à noite). O dispositivo continua a ver a rede de casa.</p>
+  </div>
+</div>
+
+<table class="table-cards">
+  <thead><tr><th>Dispositivo</th><th>IP</th><th>Estado</th><th>Internet</th><th>Horário</th><th>Ações</th></tr></thead>
+  <tbody>
+    {% for l in leases %}
+    {% set mac = l['mac-address'] | upper %}
+    {% set blocked = l.address in control.blocked %}
+    {% set sched = control.schedules.get(mac) %}
+    {% set label = l.name or l.address %}
+    <tr>
+      <td class="card-title"><strong>{{ l.name or '(sem nome)' }}</strong></td>
+      <td data-label="IP"><code>{{ l.address }}</code></td>
+      <td data-label="Estado">
+        {% if l.status == 'bound' %}<span class="badge badge-ok">&#9679; Ligado</span>
+        {% else %}<span class="badge badge-neutral">&#9675; Offline</span>{% endif %}
+      </td>
+      <td data-label="Internet">
+        {% if blocked %}<span class="badge badge-danger">Bloqueada</span>{% else %}<span class="meta">Normal</span>{% endif %}
+      </td>
+      <td data-label="Horário">
+        {% if sched %}
+          <span class="small">{{ sched.window | replace('-', ' – ') }} ·
+            {% for d in sched.days %}{{ day_names[d] }}{{ ', ' if not loop.last }}{% endfor %}</span>
+        {% else %}<span class="meta">—</span>{% endif %}
+      </td>
+      <td class="actions">
+        {% if blocked %}
+          {{ action_form('unblock', 'Desbloquear', 'btn-sm btn-ok', '', {'lease_id': l['.id'], 'label': label}) }}
+        {% else %}
+          {{ action_form('block', 'Bloquear', 'btn-sm btn-danger',
+               'Cortar a internet a ' ~ label ~ ' agora?', {'lease_id': l['.id'], 'label': label}) }}
+        {% endif %}
+        <button class="btn btn-sm" onclick="openSchedule('{{ l['.id'] }}', {{ label | tojson | forceescape }}, '{{ sched.window if sched else '' }}', '{{ sched.days | join(',') if sched else '' }}')">
+          {{ 'Editar horário' if sched else 'Horário' }}
+        </button>
+        {% if sched %}
+          {{ action_form('schedule_clear', 'Tirar horário', 'btn-sm', '', {'lease_id': l['.id']}) }}
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+<p class="meta mk-p" style="margin-top:12px">Bloquear ou pôr horário fixa o IP do dispositivo, para a regra não deixar de funcionar.</p>
+
+<div id="modal-sched" class="modal" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+  <div class="modal-box">
+    <h3 id="sched-title">Horário sem internet</h3>
+    <form method="post" action="{{ url_for('mikrotik_action') }}" class="mk-form">
+      {{ hidden('schedule_set') }}
+      <input type="hidden" name="lease_id" id="sched-id">
+      <input type="hidden" name="label" id="sched-label">
+      <div class="mk-row">
+        <div class="field"><label for="sched-start">Sem internet das</label><input type="time" id="sched-start" name="start" value="22:00" required></div>
+        <div class="field"><label for="sched-end">às</label><input type="time" id="sched-end" name="end" value="07:00" required></div>
+      </div>
+      <div class="field">
+        <label>Dias</label>
+        <div class="mk-days">
+          {% for d in days %}
+          <label class="mk-day"><input type="checkbox" name="days" value="{{ d }}" checked><span>{{ day_names[d] }}</span></label>
+          {% endfor %}
+        </div>
+      </div>
+      <p class="meta mk-p">Se passar da meia-noite (ex.: 22:00 – 07:00), conta a partir do dia escolhido.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn" onclick="closeModal('modal-sched')">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Guardar</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<style>
+.mk-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 24px; }
+.mk-tab {
+  padding: 8px 16px; border: 1px solid var(--border); border-radius: 20px;
+  color: var(--muted); text-decoration: none; font-size: 13px; background: var(--surface);
+}
+.mk-tab:hover { color: var(--text); }
+.mk-tab.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+.mk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; margin-bottom: 28px; }
+.mk-grid h3, .mk-subheader h3 { font-size: 15px; margin-bottom: 12px; }
+.mk-subheader h3 { margin-bottom: 4px; }
+.mk-p { margin: -4px 0 14px; line-height: 1.5; }
+.mk-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.mk-info { margin-bottom: 20px; }
+.mk-presets { display: flex; gap: 6px; flex-wrap: wrap; margin: -4px 0 16px; }
+.field select {
+  width: 100%; padding: 10px 12px; background: var(--bg); border: 1px solid var(--border);
+  border-radius: var(--radius); color: var(--text); font-size: 14px;
+}
+.actions form { display: inline; }
+tr.mk-disabled td { opacity: .5; }
+.mk-days { display: flex; gap: 6px; flex-wrap: wrap; }
+.mk-day { cursor: pointer; }
+.mk-day input { display: none; }
+.mk-day span {
+  display: inline-block; padding: 6px 10px; border: 1px solid var(--border); border-radius: 16px;
+  font-size: 12px; color: var(--muted);
+}
+.mk-day input:checked + span { background: var(--primary); border-color: var(--primary); color: #fff; }
+.page-header .meta a { color: var(--primary); }
+@media (max-width: 700px) {
+  .mk-tabs { flex-wrap: nowrap; overflow-x: auto; margin: 0 -16px 20px; padding: 0 16px; }
+  .mk-tab { white-space: nowrap; }
+  .mk-grid { grid-template-columns: 1fr; }
+}
+</style>
+
+<script>
+function openModal(id)  { document.getElementById(id).style.display = 'flex'; }
+function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+
+function busy(form) {
+  const btn = form.querySelector('button[type=submit], button:not([type])');
+  if (!btn) return;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> A aplicar…';
+}
+document.querySelectorAll('.mk-form').forEach(form => {
+  form.addEventListener('submit', e => {
+    if (form.classList.contains('mk-confirm') && !confirm(form.dataset.msg)) { e.preventDefault(); return; }
+    busy(form);
+  });
+});
+
+document.querySelectorAll('[data-dns]').forEach(btn => {
+  btn.addEventListener('click', () => { document.getElementById('f-dns').value = btn.dataset.dns; });
+});
+
+function openLease(id, ip, mac, name) {
+  const isNew = !id;
+  document.getElementById('lease-title').textContent = isNew ? 'Reservar IP' : 'Fixar IP — ' + (name || ip);
+  document.getElementById('lease-action').value = isNew ? 'lease_add' : 'lease_update';
+  document.getElementById('lease-id').value = id;
+  document.getElementById('lease-mac-field').style.display = isNew ? '' : 'none';
+  document.getElementById('lease-mac').required = isNew;
+  document.getElementById('lease-mac').value = mac;
+  document.getElementById('lease-name').value = name;
+  document.getElementById('lease-ip').value = ip;
+  openModal('modal-lease');
+}
+
+function openSchedule(id, label, win, days) {
+  document.getElementById('sched-title').textContent = 'Horário sem internet — ' + label;
+  document.getElementById('sched-id').value = id;
+  document.getElementById('sched-label').value = label;
+  if (win) {
+    const [a, b] = win.split('-');
+    document.getElementById('sched-start').value = a;
+    document.getElementById('sched-end').value = b;
+  }
+  const selected = days ? days.split(',') : null;
+  document.querySelectorAll('#modal-sched input[name=days]').forEach(cb => {
+    cb.checked = selected ? selected.includes(cb.value) : true;
+  });
+  openModal('modal-sched');
+}
+</script>
+
+{% endblock %}

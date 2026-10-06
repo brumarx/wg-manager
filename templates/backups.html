@@ -45,6 +45,7 @@
       <td data-label="Tamanho">{{ b.size | fmt_bytes }}</td>
       <td data-label="Origem">
         {% if b.auto %}<span class="badge badge-neutral">Automático</span>
+        {% elif b.pre %}<span class="badge badge-neutral">Antes de alteração</span>
         {% elif b.panel %}<span class="badge badge-ok">Painel</span>
         {% else %}<span class="badge badge-off">Outro</span>{% endif %}
       </td>

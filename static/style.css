@@ -35,7 +35,9 @@ nav {
 }
 .nav-brand { font-weight: 700; font-size: 16px; letter-spacing: .5px; color: var(--text); text-decoration: none; display: inline-flex; align-items: center; gap: 10px; }
 .nav-brand img { border-radius: 6px; }
-.nav-right { display: flex; align-items: center; gap: 12px; }
+.nav-right { display: flex; align-items: center; gap: 6px; }
+.nav-right .btn { white-space: nowrap; padding: 5px 10px; }
+.nav-brand { white-space: nowrap; }
 .nav-user { color: var(--muted); font-size: 13px; }
 .nav-toggle {
   display: none;
@@ -421,13 +423,18 @@ code {
   width: 0%;
 }
 
-@media (max-width: 700px) {
+@media (max-width: 1240px) {
   nav { flex-wrap: wrap; height: auto; min-height: 56px; padding: 10px 16px; }
   .nav-toggle { display: block; }
   .nav-right { display: none; width: 100%; flex-direction: column; align-items: stretch; gap: 6px; padding: 10px 0 4px; }
   nav.nav-open .nav-right { display: flex; }
   .nav-right .btn { justify-content: center; padding: 10px 12px; font-size: 14px; }
   .nav-user { text-align: center; }
+  .nav-right { max-width: 420px; margin-left: auto; }
+}
+
+@media (max-width: 700px) {
+  .nav-right { max-width: none; }
   main { padding: 20px 16px; }
   .auth-box { margin: 40px auto; padding: 28px 20px; }
   .auth-wrap { min-height: calc(100vh - 40px); justify-content: flex-start; padding-top: 6vh; }
