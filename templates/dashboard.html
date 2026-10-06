@@ -263,7 +263,11 @@ document.querySelectorAll('.btn-edit-peer').forEach(btn => {
 });
 document.querySelectorAll('.form-delete-peer').forEach(form => {
   form.addEventListener('submit', e => {
-    if (!confirm('Eliminar ' + form.dataset.name + '?')) e.preventDefault();
+    if (!confirm('Eliminar ' + form.dataset.name + '?')) { e.preventDefault(); return; }
+    const btn = form.querySelector('button');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> A eliminar…';
+    form.closest('tr').classList.add('row-busy');
   });
 });
 </script>

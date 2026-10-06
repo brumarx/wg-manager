@@ -243,6 +243,7 @@ tr:last-child td { border-bottom: none; }
 tr:hover td { background: #1e2235; }
 
 .actions { display: flex; gap: 6px; flex-wrap: wrap; }
+tr.row-busy td { opacity: .45; transition: opacity .2s; }
 
 code {
   background: var(--bg);

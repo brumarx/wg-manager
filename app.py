@@ -9,6 +9,7 @@ import ipaddress
 import io
 import base64
 import time
+import threading
 from functools import wraps
 from datetime import datetime, timedelta
 
@@ -82,18 +83,55 @@ def _ros_escape(s):
     return s
 
 
+# Abrir uma ligação SSH ao hEX demora ~1,2 s; reutilizar uma aberta ~0,01 s.
+# Por isso mantém-se uma única ligação partilhada (protegida por um lock).
+_ssh_lock = threading.Lock()
+_ssh_client = None
+
+
+def _ssh_reset():
+    global _ssh_client
+    if _ssh_client is not None:
+        try:
+            _ssh_client.close()
+        except Exception:
+            pass
+    _ssh_client = None
+
+
+def _ssh_get():
+    global _ssh_client
+    transport = _ssh_client.get_transport() if _ssh_client else None
+    if transport is None or not transport.is_active():
+        _ssh_reset()
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        client.connect(MIKROTIK_HOST, port=MIKROTIK_PORT, username=MIKROTIK_USER,
+                       password=MIKROTIK_PASS, timeout=8, look_for_keys=False,
+                       allow_agent=False)
+        client.get_transport().set_keepalive(30)
+        _ssh_client = client
+    return _ssh_client
+
+
 def mikrotik_run(script, timeout=15):
     """Executa um script RouterOS via SSH e devolve o stdout (texto)."""
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    try:
-        client.connect(MIKROTIK_HOST, port=MIKROTIK_PORT, username=MIKROTIK_USER,
-                        password=MIKROTIK_PASS, timeout=8, look_for_keys=False,
-                        allow_agent=False)
-        _, stdout, _ = client.exec_command(script, timeout=timeout)
-        return stdout.read().decode('utf-8', 'replace')
-    finally:
-        client.close()
+    with _ssh_lock:
+        # Só se repete quando a falha é a abrir o canal (ligação antiga caída);
+        # depois de o comando ser enviado não se repete, para não o correr 2 vezes.
+        for attempt in (1, 2):
+            try:
+                _, stdout, _ = _ssh_get().exec_command(script, timeout=timeout)
+                break
+            except (paramiko.SSHException, OSError, EOFError):
+                _ssh_reset()
+                if attempt == 2:
+                    raise
+        try:
+            return stdout.read().decode('utf-8', 'replace')
+        except Exception:
+            _ssh_reset()
+            raise
 
 
 def parse_ros_duration(s):
@@ -402,15 +440,11 @@ def wg_stats(iface):
     return stats
 
 
-def wg_status(iface):
-    now = time.time()
-    return {k for k, v in wg_stats(iface).items()
-            if v['last_handshake'] > 0 and (now - v['last_handshake']) < 180}
-
-
-def update_peer_stats(iface):
-    """Lê contadores do wg e acumula na BD (detecta resets por reinício do serviço)."""
-    live = wg_stats(iface)
+def update_peer_stats(iface, live=None):
+    """Lê contadores do wg e acumula na BD (detecta resets por reinício do serviço).
+    Aceita `live` já lido para evitar uma segunda ida ao router."""
+    if live is None:
+        live = wg_stats(iface)
     if not live:
         return
     conn = get_db()
@@ -639,8 +673,11 @@ def dashboard():
     iface = detect_interface()
     check_expirations()
     auto_sync_peers(iface)
-    update_peer_stats(iface)
-    active_keys = wg_status(iface)
+    live = wg_stats(iface)
+    update_peer_stats(iface, live)
+    now = time.time()
+    active_keys = {k for k, v in live.items()
+                   if v['last_handshake'] > 0 and (now - v['last_handshake']) < 180}
     conn = get_db()
     peers = conn.execute('SELECT * FROM peers ORDER BY created_at DESC').fetchall()
     conn.close()
@@ -676,8 +713,8 @@ def peer_daily_history(peer_id, days=14):
 @login_required
 def stats_page():
     iface = detect_interface()
-    update_peer_stats(iface)
     live = wg_stats(iface)
+    update_peer_stats(iface, live)
     conn = get_db()
     peers = conn.execute('SELECT * FROM peers ORDER BY name').fetchall()
     rows = conn.execute('SELECT * FROM peer_stats').fetchall()
@@ -708,8 +745,8 @@ def stats_page():
 @login_required
 def api_stats():
     iface = detect_interface()
-    update_peer_stats(iface)
     live = wg_stats(iface)
+    update_peer_stats(iface, live)
     conn = get_db()
     peers = conn.execute('SELECT id, public_key FROM peers').fetchall()
     rows = conn.execute('SELECT * FROM peer_stats').fetchall()
