@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="page-header">
+  <div>
+    <h2>Backups do MikroTik</h2>
+    <p class="meta">Cópias da configuração do router, para repor se algo correr mal</p>
+  </div>
+  <form method="post" action="{{ url_for('backups_create') }}" class="header-actions" id="form-create">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <button class="btn btn-primary">Fazer backup agora</button>
+  </form>
+</div>
+
+{% if error %}
+<div class="alert alert-error">{{ error }}</div>
+{% endif %}
+
+<div class="backup-info">
+  <div class="sysinfo-card">
+    <div class="sysinfo-label">Backup automático</div>
+    <div class="sysinfo-value">A cada {{ interval }} dia{{ 's' if interval != 1 }}</div>
+  </div>
+  <div class="sysinfo-card">
+    <div class="sysinfo-label">Último automático</div>
+    <div class="sysinfo-value">{{ last_auto.strftime('%d/%m/%Y %H:%M') if last_auto else 'Ainda nenhum' }}</div>
+  </div>
+  <div class="sysinfo-card">
+    <div class="sysinfo-label">Próximo</div>
+    <div class="sysinfo-value">{{ next_auto.strftime('%d/%m/%Y') if next_auto else 'Na próxima hora' }}</div>
+  </div>
+</div>
+
+<h3 class="section-title">No router <span class="meta">— backup completo, restaura-se com um clique</span></h3>
+{% if router_backups %}
+<table class="table-cards">
+  <thead>
+    <tr><th>Ficheiro</th><th>Data</th><th>Tamanho</th><th>Origem</th><th>Ações</th></tr>
+  </thead>
+  <tbody>
+    {% for b in router_backups %}
+    <tr>
+      <td class="card-title"><code>{{ b.short }}</code></td>
+      <td data-label="Data">{{ b.modified or '—' }}</td>
+      <td data-label="Tamanho">{{ b.size | fmt_bytes }}</td>
+      <td data-label="Origem">
+        {% if b.auto %}<span class="badge badge-neutral">Automático</span>
+        {% elif b.panel %}<span class="badge badge-ok">Painel</span>
+        {% else %}<span class="badge badge-off">Outro</span>{% endif %}
+      </td>
+      <td class="actions">
+        <a class="btn btn-sm" href="{{ url_for('backups_router_download', name=b.name) }}">Download</a>
+        <form method="post" action="{{ url_for('backups_router_restore') }}" class="form-restore"
+              data-name="{{ b.short }}" data-date="{{ b.modified or 'data desconhecida' }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="name" value="{{ b.name }}">
+          <button class="btn btn-sm btn-warn">Restaurar</button>
+        </form>
+        <form method="post" action="{{ url_for('backups_router_delete') }}" class="form-confirm"
+              data-msg="Apagar o backup {{ b.short }} do router?">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="name" value="{{ b.name }}">
+          <button class="btn btn-sm btn-danger">Apagar</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% elif not error %}
+<div class="empty"><p>Ainda não há backups no router.</p></div>
+{% endif %}
+
+<h3 class="section-title">No Pi <span class="meta">— export em texto, legível, fica a salvo se o router avariar</span></h3>
+{% if exports %}
+<table class="table-cards">
+  <thead>
+    <tr><th>Ficheiro</th><th>Data</th><th>Tamanho</th><th>Origem</th><th>Ações</th></tr>
+  </thead>
+  <tbody>
+    {% for e in exports %}
+    <tr>
+      <td class="card-title"><code>{{ e.name }}</code></td>
+      <td data-label="Data">{{ e.modified }}</td>
+      <td data-label="Tamanho">{{ e.size | fmt_bytes }}</td>
+      <td data-label="Origem">
+        {% if e.auto %}<span class="badge badge-neutral">Automático</span>
+        {% else %}<span class="badge badge-ok">Painel</span>{% endif %}
+      </td>
+      <td class="actions">
+        <a class="btn btn-sm" href="{{ url_for('backups_export_view', name=e.name) }}" target="_blank">Ver</a>
+        <a class="btn btn-sm" href="{{ url_for('backups_export_view', name=e.name, download=1) }}">Download</a>
+        <form method="post" action="{{ url_for('backups_export_delete', name=e.name) }}" class="form-confirm"
+              data-msg="Apagar o export {{ e.name }}?">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="btn btn-sm btn-danger">Apagar</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<div class="empty"><p>Ainda não há exports guardados no Pi.</p></div>
+{% endif %}
+
+<div class="help-card backup-help">
+  <div class="help-icon">?</div>
+  <h3>Qual usar?</h3>
+  <p><strong>Backup no router</strong> — guarda tudo, incluindo passwords e chaves. Usa
+     <strong>Restaurar</strong> para voltar exatamente a esse estado; o router reinicia
+     e a internet e a VPN ficam em baixo 1–2 minutos.</p>
+  <p><strong>Export no Pi</strong> — texto com os comandos da configuração (sem passwords).
+     Serve para ver o que mudou e para reconstruir o router se ele avariar ou for reposto.</p>
+  <p>Faz um backup antes de mexer na configuração do router.</p>
+</div>
+
+<style>
+.backup-info { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 28px; }
+.section-title { font-size: 15px; margin: 8px 0 12px; }
+.section-title .meta { font-weight: 400; }
+.table-cards + .section-title, .empty + .section-title { margin-top: 32px; }
+.actions form { display: inline; }
+.backup-help { margin-top: 32px; max-width: 640px; }
+@media (max-width: 700px) {
+  .backup-info { grid-template-columns: 1fr; gap: 8px; }
+  .section-title .meta { display: block; margin-top: 4px; }
+}
+</style>
+
+<script>
+function busy(form, text) {
+  const btn = form.querySelector('button');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> ' + text;
+}
+document.getElementById('form-create').addEventListener('submit', e => busy(e.target, 'A fazer backup…'));
+document.querySelectorAll('.form-confirm').forEach(form => {
+  form.addEventListener('submit', e => {
+    if (!confirm(form.dataset.msg)) { e.preventDefault(); return; }
+    busy(form, 'A apagar…');
+  });
+});
+document.querySelectorAll('.form-restore').forEach(form => {
+  form.addEventListener('submit', e => {
+    const ok = confirm(
+      'Restaurar o backup ' + form.dataset.name + ' (' + form.dataset.date + ')?\n\n' +
+      'Toda a configuração do router volta a esse momento — o que mudou depois perde-se.\n' +
+      'O MikroTik reinicia: a internet e a VPN ficam em baixo 1–2 minutos.');
+    if (!ok) { e.preventDefault(); return; }
+    busy(form, 'A restaurar…');
+  });
+});
+</script>
+
+{% endblock %}

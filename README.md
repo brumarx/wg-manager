@@ -41,6 +41,9 @@ Este painel resolve isso falando diretamente com o RouterOS por SSH.
   router (Winbox) para a base de dados do painel. Corre automaticamente ao
   abrir a página de utilizadores (no máximo uma vez por minuto); o botão
   "Sincronizar do Mikrotik" força-a na hora e mostra erros de ligação.
+- **Backups do MikroTik** — página com backup completo no router (restaura-se
+  com um clique) e export em texto guardado no Pi (pasta `backups/`).
+  Backup automático a cada 7 dias (`BACKUP_INTERVAL_DAYS`).
 - Login com password, proteção CSRF em todas as ações, e monitor do sistema
   (CPU/RAM/disco/temperatura) da própria máquina onde o painel corre.
 

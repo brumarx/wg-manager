@@ -433,7 +433,7 @@ code {
   .auth-wrap { min-height: calc(100vh - 40px); justify-content: flex-start; padding-top: 6vh; }
   .modal-box { margin: 0 16px; padding: 24px 20px; }
   .header-actions > *, .header-actions form .btn, .page-header > .btn { width: 100%; justify-content: center; }
-  .header-actions { flex-wrap: wrap; flex-shrink: 1; }
+  .header-actions { flex-wrap: wrap; flex-shrink: 1; align-self: stretch; }
   .header-actions form { flex: 1 1 100%; }
   table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 

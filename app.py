@@ -19,6 +19,8 @@ from flask import (Flask, render_template, request, redirect,
                    Response, stream_with_context)
 from werkzeug.security import generate_password_hash, check_password_hash
 
+import mikrotik_config as mkcfg
+
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(32))
 REPO_URL = os.environ.get('REPO_URL', 'https://github.com/brumarx/wg-manager')
@@ -132,6 +134,33 @@ def mikrotik_run(script, timeout=15):
         except Exception:
             _ssh_reset()
             raise
+
+
+def mikrotik_run_confirm(script):
+    """Executa um comando que pede confirmação ("[y/N]") e responde "y".
+    Usado para reiniciar/restaurar: a ligação cai logo a seguir, por isso
+    não se espera pela saída e a ligação partilhada é descartada."""
+    with _ssh_lock:
+        try:
+            stdin, _, _ = _ssh_get().exec_command(script, timeout=5)
+            stdin.write('y\n')
+            stdin.flush()
+            time.sleep(2)
+        except Exception:
+            pass
+        finally:
+            _ssh_reset()
+
+
+def router_sftp_read(path):
+    """Lê um ficheiro da flash do router por SFTP (para descarregar backups)."""
+    with _ssh_lock:
+        sftp = _ssh_get().open_sftp()
+        try:
+            with sftp.open(path, 'rb') as f:
+                return f.read()
+        finally:
+            sftp.close()
 
 
 def parse_ros_duration(s):
@@ -1419,31 +1448,157 @@ def network_run():
 @app.route('/network/reboot-router', methods=['POST'])
 @login_required
 def reboot_router():
-    """Reinicia o Mikrotik. A ligação SSH cai durante o reboot, por isso
-    um erro depois de enviar o comando é o resultado esperado."""
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
-        client.connect(MIKROTIK_HOST, port=MIKROTIK_PORT, username=MIKROTIK_USER,
-                       password=MIKROTIK_PASS, timeout=8, look_for_keys=False,
-                       allow_agent=False)
+        mikrotik_run(':put ok\n')  # confirma que o router responde antes
     except Exception as exc:
         return jsonify(ok=False, error=f'Erro a ligar ao Mikrotik: {exc}'), 502
-    try:
-        stdin, _, _ = client.exec_command('/system reboot', timeout=5)
-        stdin.write('y\n')  # responde à confirmação "Reboot, yes? [y/N]"
-        stdin.flush()
-        time.sleep(2)
-    except Exception:
-        pass
-    finally:
-        client.close()
+    mikrotik_run_confirm('/system reboot')
     log_action('reiniciar_router', f'Mikrotik {MIKROTIK_HOST} reiniciado pelo painel')
     return jsonify(ok=True)
+
+
+# ---------------------------------------------------------------------------
+# Backups do MikroTik
+# ---------------------------------------------------------------------------
+
+BACKUP_DIR = os.environ.get('BACKUP_DIR', os.path.join(os.path.dirname(os.path.abspath(__file__)), 'backups'))
+BACKUP_INTERVAL_DAYS = int(os.environ.get('BACKUP_INTERVAL_DAYS', '7'))
+
+
+def run_auto_backup():
+    """Backup automático: binário no router + export em texto no Pi."""
+    router_name = mkcfg.create_router_backup(mikrotik_run, auto=True)
+    export_name = mkcfg.create_export(mikrotik_run, BACKUP_DIR, auto=True)
+    conn = get_db()
+    conn.execute('INSERT INTO audit_log (ts, admin, action, details) VALUES (?, ?, ?, ?)',
+                 (datetime.now().isoformat(timespec='seconds'), 'sistema', 'backup_auto',
+                  f'{router_name.split("/")[-1]} + {export_name}'))
+    conn.commit()
+    conn.close()
+
+
+def auto_backup_loop():
+    """Verifica de hora a hora se já passou o intervalo desde o último backup automático."""
+    time.sleep(60)  # deixa o painel arrancar primeiro
+    while True:
+        try:
+            last = mkcfg.last_auto_time(BACKUP_DIR)
+            if last is None or datetime.now() - last >= timedelta(days=BACKUP_INTERVAL_DAYS):
+                run_auto_backup()
+        except Exception as exc:
+            print(f'[backup automático] falhou: {exc}', flush=True)
+        time.sleep(3600)
+
+
+@app.route('/backups')
+@login_required
+def backups_page():
+    router_backups, error = [], None
+    try:
+        router_backups = mkcfg.list_router_backups(mikrotik_run)
+    except Exception as exc:
+        error = f'Não consegui ligar ao MikroTik: {exc}'
+    last = mkcfg.last_auto_time(BACKUP_DIR)
+    next_auto = last + timedelta(days=BACKUP_INTERVAL_DAYS) if last else None
+    return render_template('backups.html', router_backups=router_backups,
+                           exports=mkcfg.list_exports(BACKUP_DIR), error=error,
+                           last_auto=last, next_auto=next_auto,
+                           interval=BACKUP_INTERVAL_DAYS)
+
+
+@app.route('/backups/create', methods=['POST'])
+@login_required
+def backups_create():
+    try:
+        router_name = mkcfg.create_router_backup(mikrotik_run)
+        export_name = mkcfg.create_export(mikrotik_run, BACKUP_DIR)
+    except mkcfg.RouterError as exc:
+        flash(str(exc))
+    except Exception as exc:
+        flash(f'Erro a fazer o backup: {exc}')
+    else:
+        log_action('backup', f'{router_name.split("/")[-1]} + {export_name}')
+        flash('Backup feito: completo no router e export em texto no Pi.')
+    return redirect(url_for('backups_page'))
+
+
+@app.route('/backups/router/download')
+@login_required
+def backups_router_download():
+    name = request.args.get('name', '')
+    try:
+        mkcfg.check_backup_name(name)
+        data = router_sftp_read(name)
+    except mkcfg.RouterError as exc:
+        flash(str(exc))
+        return redirect(url_for('backups_page'))
+    except Exception as exc:
+        flash(f'Não consegui descarregar o backup: {exc}')
+        return redirect(url_for('backups_page'))
+    return send_file(io.BytesIO(data), as_attachment=True,
+                     download_name=name.split('/')[-1], mimetype='application/octet-stream')
+
+
+@app.route('/backups/router/delete', methods=['POST'])
+@login_required
+def backups_router_delete():
+    name = request.form.get('name', '')
+    try:
+        mkcfg.delete_router_backup(mikrotik_run, name)
+    except Exception as exc:
+        flash(str(exc))
+    else:
+        log_action('backup_apagar', name.split('/')[-1])
+        flash(f'Backup {name.split("/")[-1]} apagado do router.')
+    return redirect(url_for('backups_page'))
+
+
+@app.route('/backups/router/restore', methods=['POST'])
+@login_required
+def backups_router_restore():
+    name = request.form.get('name', '')
+    try:
+        cmd = mkcfg.restore_command(mikrotik_run, name)
+    except Exception as exc:
+        flash(str(exc))
+        return redirect(url_for('backups_page'))
+    log_action('backup_restaurar', f'{name.split("/")[-1]} — o router vai reiniciar')
+    mikrotik_run_confirm(cmd)
+    flash(f'A restaurar {name.split("/")[-1]}. O MikroTik está a reiniciar — '
+          'a internet e a VPN voltam dentro de 1–2 minutos.')
+    return redirect(url_for('backups_page'))
+
+
+@app.route('/backups/export/<name>')
+@login_required
+def backups_export_view(name):
+    try:
+        path = mkcfg.export_path(BACKUP_DIR, name)
+    except mkcfg.RouterError:
+        abort(404)
+    if not os.path.isfile(path):
+        abort(404)
+    return send_file(path, mimetype='text/plain; charset=utf-8',
+                     as_attachment=request.args.get('download') == '1', download_name=name)
+
+
+@app.route('/backups/export/<name>/delete', methods=['POST'])
+@login_required
+def backups_export_delete(name):
+    try:
+        path = mkcfg.export_path(BACKUP_DIR, name)
+    except mkcfg.RouterError:
+        abort(404)
+    if os.path.isfile(path):
+        os.remove(path)
+        log_action('backup_apagar', name)
+        flash(f'Export {name} apagado.')
+    return redirect(url_for('backups_page'))
 
 
 if __name__ == '__main__':
     init_db()
     migrate_db()
     port = int(os.environ.get('PORT', 5000))
+    threading.Thread(target=auto_backup_loop, daemon=True, name='auto-backup').start()
     app.run(host='0.0.0.0', port=port, debug=False)
