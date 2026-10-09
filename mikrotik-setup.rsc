@@ -35,6 +35,12 @@
 /ip firewall filter add chain=forward action=accept in-interface=wg0 comment="wg0 forward in"
 /ip firewall filter add chain=forward action=accept out-interface=wg0 comment="wg0 forward out"
 
+# --- MSS clamp: o túnel tem MTU 1420, por isso ligações TCP que negoceiam
+#     MSS para 1500 ficam penduradas em transferências grandes (sites/apps que
+#     começam a carregar e param). Ajusta o MSS no SYN para caber no túnel. ---
+/ip firewall mangle add chain=forward action=change-mss new-mss=clamp-to-pmtu passthrough=yes protocol=tcp tcp-flags=syn out-interface=wg0 comment="MSS clamp wg0 out"
+/ip firewall mangle add chain=forward action=change-mss new-mss=clamp-to-pmtu passthrough=yes protocol=tcp tcp-flags=syn in-interface=wg0 comment="MSS clamp wg0 in"
+
 # --- NAT: mascarar tráfego do túnel quando sai para a LAN (para os clientes
 #     VPN aparecerem como vindos do próprio router perante outros serviços
 #     da rede que só confiam na sub-rede local) ---
